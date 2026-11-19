@@ -11,3 +11,6 @@ build/
 Unwalked/Info.plist
 UnwalkedWatch/Info.plist
 UnwalkedWidgets/Info.plist
+
+# Coverage
+*.profraw
