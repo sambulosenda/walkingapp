@@ -11,6 +11,7 @@ struct WalkCompleteScreen: View {
     @State private var shown = 0
     @State private var grown = false
     @State private var reveal: Task<Void, Never>?
+    @State private var rating: LoopRating?
 
     private var record: WalkRecord { summary.record }
     private var total: Int { summary.newSegments.count }
@@ -77,9 +78,19 @@ struct WalkCompleteScreen: View {
                             added: grown ? max(0, summary.coverageAfter - summary.coverageBefore) : 0)
                     .padding(.top, 10)
 
+                HStack(spacing: 8) {
+                    Text("How was this loop?")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    RatingButton(systemName: "hand.thumbsup", label: "Good loop", isOn: rating == .good) { rate(.good) }
+                    RatingButton(systemName: "hand.thumbsdown", label: "Not a good loop", isOn: rating == .bad) { rate(.bad) }
+                }
+                .padding(.top, 16)
+
                 Button("Done") { model.done() }
                     .buttonStyle(PrimaryButtonStyle())
-                    .padding(.top, 20)
+                    .padding(.top, 16)
             }
         }
         .onAppear {
@@ -92,6 +103,12 @@ struct WalkCompleteScreen: View {
     private var metaLine: String {
         let minutes = Int((record.duration / 60).rounded())
         return "\(minutes) min · \(Format.km(record.distance)) · \(Format.percent(record.newFraction)) new to you"
+    }
+
+    /// Tapping the picked thumb again clears it.
+    private func rate(_ picked: LoopRating) {
+        rating = rating == picked ? nil : picked
+        model.library.rate(record.id, rating)
     }
 
     private func play() {
@@ -108,6 +125,26 @@ struct WalkCompleteScreen: View {
             try? await Task.sleep(for: .milliseconds(150))
             withAnimation(.easeOut(duration: 0.7)) { grown = true }
         }
+    }
+}
+
+struct RatingButton: View {
+    let systemName: String
+    let label: String
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isOn ? "\(systemName).fill" : systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(isOn ? Theme.onPrimary : Theme.text)
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(isOn ? Theme.primary : Theme.chip))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 

@@ -30,6 +30,7 @@ so you can see turn cues, the Live Activity and Walk complete.
 | `Unwalked/Screens` | The v2 screens: onboarding (location, pace, home area), Home (with First run and After dark), Loop options, Walking (with Off the loop, Running late and Report a street), Walk complete, Paywall, Settings |
 | `Unwalked/Design` | Colours, type and shared components taken from the v2 designs |
 | `Unwalked/Map` | The map and the layers drawn on it |
+| `Unwalked/Services/Streets` | OpenStreetMap download, street graph and the loop engine |
 | `Unwalked/Services` | Location, loop planning, walk guidance, coverage, turn cues, StoreKit, Live Activity, watch link |
 | `UnwalkedWidgets` | Lock Screen Live Activity and Dynamic Island |
 | `UnwalkedWatch` | Watch app: turn screen, between-turns ring, wrist taps |
@@ -37,15 +38,19 @@ so you can see turn cues, the Live Activity and Walk complete.
 
 ## How it works
 
-- **Loops** are planned with Apple's walking directions: home → two turning points → home, sized to the time
-  you pick at your pace, in three directions. The one with the most new streets comes first.
-- **New streets** are tracked on a ~20 m grid of everywhere you have walked. Coverage is walked cells over an
-  estimate of street length in your home area (about 15 km of street per km²). Real street data from
-  OpenStreetMap would make both exact.
+- **Streets** come from OpenStreetMap: the walkable ways around your home area are downloaded once (Overpass API),
+  kept on the phone and refreshed monthly. Private ways, driveways and anything closed to walkers are left out;
+  main roads without a pavement cost extra.
+- **Loops** are planned on the phone, on that street graph: 24 candidate loops in different directions, each resized
+  to the time you pick at your pace, scored for new streets, main roads and doubling back. The best three are shown,
+  most new first. Until the streets have downloaded, loops fall back to Apple's walking directions.
+- **New streets**: a stretch of street counts as walked once 90% of it is covered. Coverage is walked street length
+  over all street length in your home area. Walks are stored as a ~20 m grid, so the map survives street data changing.
 - **Pace** starts from your onboarding pick and learns from your last five walks.
 - **Guidance** follows you along the route: turn cues 20 to 30 m before each turn (two taps and a low tone for left,
-  three taps and a high tone for right), a long buzz when you leave the loop, and a shortcut offer once you're
-  running five minutes late.
+  three taps and a high tone for right, then the turn spoken), a new route when you leave the loop by 30 m, and a
+  shortcut offer once you would be more than 10% over your time.
 - **Plus** is two StoreKit subscriptions, `com.unwalked.plus.yearly` and `com.unwalked.plus.monthly`.
   Two free loops a week, resetting on Monday.
-- Everything is stored on the phone, in `Application Support/unwalked.json`.
+- Everything is stored on the phone, in `Application Support/unwalked.json`. Test purchases with `Unwalked.storekit`,
+  which the Run scheme already uses.

@@ -129,7 +129,7 @@ struct HomeAreaStep: View {
                 if onDone == nil { StepLabel(step: 3, of: 3).padding(.top, 16) }
                 SheetTitle(text: "This is your home area").padding(.top, onDone == nil ? 4 : 16)
                 if let area {
-                    BodyText(text: "Your coverage counts the \(area.estimatedStreetCount) streets inside the circle. Drag its edge to make it bigger or smaller.")
+                    BodyText(text: "Your coverage counts the streets, about \(area.estimatedStreetCount), inside the circle. Drag its edge to make it bigger or smaller.")
                         .padding(.top, 8)
                         .contentTransition(.numericText())
                     Button("Looks right") {

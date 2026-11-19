@@ -1,37 +1,50 @@
 import AVFoundation
 import UIKit
 
-/// Turn cues from the "Turn cues" board: taps you can feel, tones you can hear in your ears.
+/// Turn cues from the "Turn cues" board: taps you can feel, tones and a voice you can hear in your ears.
 ///
 /// Left: two taps, low tone. Right: three taps, high tone. Straight on: nothing.
 /// Off the loop: one long buzz. Running late: a tap, then a buzz.
-final class CuePlayer {
+/// Each tone can be followed by a spoken line, so a walk works with the phone locked in a pocket,
+/// where iOS may not deliver the taps.
+final class CuePlayer: NSObject, AVSpeechSynthesizerDelegate {
     private let engine = AVAudioEngine()
     private let player = AVAudioPlayerNode()
     private let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 1)!
-    private var started = false
+    private let voice = AVSpeechSynthesizer()
+    /// Tones and lines still playing. The audio session is released when this reaches zero.
+    private var pending = 0
 
-    init() {
+    override init() {
+        super.init()
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: format)
+        voice.usesApplicationAudioSession = true
+        voice.delegate = self
     }
 
-    func play(_ cue: WatchMessage.Cue) {
+    func play(_ cue: WatchMessage.Cue, say line: String? = nil) {
         switch cue {
         case .left:
             taps(2)
-            tone(frequency: 440, beeps: 2)
+            tone(frequency: 440, beeps: 2, then: line)
         case .right:
             taps(3)
-            tone(frequency: 880, beeps: 3)
+            tone(frequency: 880, beeps: 3, then: line)
         case .offLoop:
             buzz(after: 0)
-            tone(frequency: 330, beeps: 1, length: 0.6)
+            tone(frequency: 330, beeps: 1, length: 0.6, then: line)
         case .late:
             taps(1)
             buzz(after: 0.25)
-            tone(frequency: 660, beeps: 2, length: 0.12)
+            tone(frequency: 660, beeps: 2, length: 0.12, then: line)
         }
+    }
+
+    /// A spoken line on its own, with no tone or taps.
+    func say(_ line: String) {
+        guard activate() else { return }
+        speak(line)
     }
 
     // MARK: Haptics
@@ -51,16 +64,36 @@ final class CuePlayer {
         }
     }
 
-    // MARK: Tones
+    // MARK: Audio session
 
-    /// Plays short sine beeps over whatever else is playing, ducking it briefly.
-    private func tone(frequency: Double, beeps: Int, length: TimeInterval = 0.09) {
+    /// Plays over whatever else is playing, ducking it briefly.
+    private func activate() -> Bool {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, options: [.mixWithOthers, .duckOthers])
+            try session.setCategory(.playback, mode: .voicePrompt, options: [.mixWithOthers, .duckOthers])
             try session.setActive(true)
-            if !started { try engine.start(); started = true }
+            return true
         } catch {
+            return false
+        }
+    }
+
+    private func finishedOne() {
+        pending = max(0, pending - 1)
+        guard pending == 0 else { return }
+        engine.stop()
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    // MARK: Tones
+
+    /// Plays short sine beeps, then speaks `line` if there is one.
+    private func tone(frequency: Double, beeps: Int, length: TimeInterval = 0.09, then line: String?) {
+        guard activate() else { return }
+        do {
+            if !engine.isRunning { try engine.start() }
+        } catch {
+            if let line { speak(line) }
             return
         }
         let rate = format.sampleRate
@@ -80,11 +113,31 @@ final class CuePlayer {
                 samples[i] = 0
             }
         }
-        player.scheduleBuffer(buffer) {
+        pending += 1
+        player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
             DispatchQueue.main.async {
-                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                guard let self else { return }
+                if let line { self.speak(line) }
+                self.finishedOne()
             }
         }
         player.play()
+    }
+
+    // MARK: Voice
+
+    private func speak(_ line: String) {
+        pending += 1
+        let utterance = AVSpeechUtterance(string: line)
+        utterance.voice = AVSpeechSynthesisVoice(language: AVSpeechSynthesisVoice.currentLanguageCode())
+        voice.speak(utterance)
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.finishedOne() }
+    }
+
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        DispatchQueue.main.async { self.finishedOne() }
     }
 }

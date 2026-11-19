@@ -54,6 +54,11 @@ struct SettingsSheet: View {
                 } footer: {
                     Text("Your walks stay on this phone.")
                 }
+
+                Section {
+                    Link("Street data © OpenStreetMap contributors",
+                         destination: URL(string: "https://www.openstreetmap.org/copyright")!)
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)

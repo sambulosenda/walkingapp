@@ -19,6 +19,19 @@ final class WalkLibrary {
     private(set) var data: Snapshot
     private let url: URL
 
+    /// The streets around home, once downloaded. Not saved here; `StreetStore` keeps its own copy.
+    @ObservationIgnored var streets: StreetGraph? { didSet { measureCoverage() } }
+    /// Walked street length over all street length in the home area, when street data is in.
+    private var streetCoverage: Double?
+    /// Named streets in the home area, when street data is in.
+    private(set) var streetCount: Int?
+
+    private func measureCoverage() {
+        guard let streets, let area = data.homeArea else { streetCoverage = nil; streetCount = nil; return }
+        streetCoverage = streets.coverage(of: data.coverage, in: area)
+        streetCount = streets.streetCount(in: area)
+    }
+
     static let freeLoopsPerWeek = 2
 
     init(url: URL = WalkLibrary.defaultURL) {
@@ -53,7 +66,7 @@ final class WalkLibrary {
 
     func finishOnboarding() { data.onboarded = true; save() }
     func setPace(_ pace: Pace) { data.pace = pace; save() }
-    func setHomeArea(_ area: HomeArea) { data.homeArea = area; save() }
+    func setHomeArea(_ area: HomeArea) { data.homeArea = area; save(); measureCoverage() }
 
     // MARK: Walks
 
@@ -63,12 +76,20 @@ final class WalkLibrary {
 
     var coverageFraction: Double {
         guard let area = data.homeArea else { return 0 }
-        return data.coverage.fraction(in: area)
+        // Real streets when they are in; an estimate of street length until then.
+        return streetCoverage ?? data.coverage.fraction(in: area)
     }
 
     func record(_ walk: WalkRecord) {
         data.walks.append(walk)
         data.coverage.mark(walk.path)
+        save()
+        measureCoverage()
+    }
+
+    func rate(_ walkID: WalkRecord.ID, _ rating: LoopRating?) {
+        guard let i = data.walks.firstIndex(where: { $0.id == walkID }) else { return }
+        data.walks[i].rating = rating
         save()
     }
 
@@ -114,5 +135,6 @@ final class WalkLibrary {
     func reset() {
         data = Snapshot()
         save()
+        measureCoverage()
     }
 }
