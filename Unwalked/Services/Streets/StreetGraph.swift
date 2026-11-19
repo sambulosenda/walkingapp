@@ -171,6 +171,22 @@ final class StreetGraph: @unchecked Sendable {
         return best?.node
     }
 
+    /// The closest few junctions with at least `minLinks` streets meeting, nearest first, within `reach` metres.
+    func nearestNodes(to c: Coord, count: Int, minLinks: Int, within reach: CLLocationDistance) -> [Int] {
+        let home = Self.cell(for: c)
+        let rings = Int64((reach / 100).rounded(.up)) + 1
+        var found: [(node: Int, distance: CLLocationDistance)] = []
+        for dx in -rings...rings {
+            for dy in -rings...rings {
+                for n in grid[Self.key(x: home.x + dx, y: home.y + dy)] ?? [] where links[n].count >= minLinks {
+                    let d = nodes[n].distance(to: c)
+                    if d <= reach { found.append((n, d)) }
+                }
+            }
+        }
+        return found.sorted { $0.distance < $1.distance }.prefix(count).map(\.node)
+    }
+
     /// True when the graph holds the streets within `radius` of `center`.
     func covers(_ center: Coord, radius: CLLocationDistance) -> Bool {
         self.center.distance(to: center) + radius <= self.radius + 1
@@ -287,16 +303,17 @@ struct WayRule {
                 .contains(tags["service"] ?? "") { return nil }
             factor = 1.3
         case "tertiary", "tertiary_link":
-            factor = 1.2
+            factor = 1.3
             isMain = true
         case "secondary", "secondary_link":
-            factor = 1.4
+            factor = 1.8
             isMain = true
         case "primary", "primary_link":
-            factor = 1.7
+            factor = 2.6
             isMain = true
         case "trunk", "trunk_link":
-            factor = 2.5
+            // Legal on foot, but nobody's idea of a walk: used only when there is no other way through.
+            factor = 6
             isMain = true
         default:
             // Motorways, roads being built, bus guideways and anything else not meant for walking.
@@ -315,6 +332,9 @@ struct WayRule {
                 // No pavement recorded on a fast road: assume the worst.
                 factor *= 3
             }
+            // Big roundabouts and the one-way halves of dual carriageways are loud and slow to cross.
+            if ["roundabout", "circular"].contains(tags["junction"] ?? "") { factor *= 2 }
+            else if tags["oneway"] == "yes", kind != "tertiary", kind != "tertiary_link" { factor *= 1.5 }
         }
         self.factor = factor
         self.isMain = isMain

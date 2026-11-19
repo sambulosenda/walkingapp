@@ -34,8 +34,15 @@ struct StreetRouter: Sendable {
         var miss = 0.0
         var bearing: Double?
 
+        /// Share of the loop that runs close beside another part of itself: hairpins and knots.
+        var doubledShare = 0.0
+        /// Times the loop turns straight back on itself.
+        var reversals = 0
+
         var fits: Bool { miss <= StreetRouter.fitTolerance && spur <= StreetRouter.longestSpur }
-        var score: Double { loop.newFraction - mainShare - 2 * repeatShare - 2 * miss }
+        var score: Double {
+            loop.newFraction - 1.5 * mainShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
+        }
     }
 
     // MARK: Loops
@@ -51,7 +58,9 @@ struct StreetRouter: Sendable {
                 // Home and two turning points make a triangle; streets wander about 1.3 times the straight line.
                 var radius = target / ((2 + 2 * sin(spread * .pi / 180)) * 1.3)
                 var best: Candidate?
-                for _ in 0..<8 {
+                // The largest radius known to give too short a loop, and the smallest known to give too long a one.
+                var tooShort: Double?, tooLong: Double?
+                for _ in 0..<10 {
                     let a = Geo.destination(from: home, bearing: bearing - spread, distance: radius)
                     let b = Geo.destination(from: home, bearing: bearing + spread, distance: radius)
                     guard var candidate = route(home: home, through: [a, b], bearing: bearing) else { break }
@@ -59,8 +68,14 @@ struct StreetRouter: Sendable {
                     candidate.miss = abs(ratio - 1)
                     if candidate.miss < (best?.miss ?? .infinity) { best = candidate }
                     if candidate.miss < 0.02 { break }
-                    // Move part of the way, so turning points snapping to junctions do not overshoot.
-                    radius /= 1 + (ratio - 1) * 0.8
+                    if ratio < 1 { tooShort = max(tooShort ?? radius, radius) } else { tooLong = min(tooLong ?? radius, radius) }
+                    if let tooShort, let tooLong, tooShort < tooLong {
+                        // The right size lies between the two: halve the gap.
+                        radius = (tooShort + tooLong) / 2
+                    } else {
+                        // Move part of the way, so turning points snapping to junctions do not overshoot.
+                        radius /= 1 + (ratio - 1) * 0.8
+                    }
                 }
                 if let best { candidates.append(best) }
             }
@@ -68,8 +83,17 @@ struct StreetRouter: Sendable {
 
         // Loops that fit the time and have no long spur come first, then the best scores.
         candidates.sort { a, b in a.fits != b.fits ? a.fits : a.score > b.score }
+
+        // Polish the most promising: let each turning point slide to a nearby junction when that
+        // gives a cleaner loop of the same length.
+        for i in candidates.indices.prefix(8) {
+            candidates[i] = polished(candidates[i], home: home, target: target)
+        }
+        candidates.sort { a, b in a.fits != b.fits ? a.fits : a.score > b.score }
         var picked: [Candidate] = []
         for candidate in candidates where picked.count < 3 {
+            // Fewer loops is better than one that is well off the time asked for.
+            if !picked.isEmpty, candidate.miss > 2 * Self.fitTolerance { continue }
             let tooSimilar = picked.contains { other in
                 let shared = candidate.used.intersection(other.used).count
                 return Double(shared) / Double(max(1, min(candidate.used.count, other.used.count))) > 0.7
@@ -95,6 +119,23 @@ struct StreetRouter: Sendable {
             }
             return loop
         }
+    }
+
+    /// Tries the junctions around each of a loop's two turning points and keeps the best-scoring loop.
+    private func polished(_ candidate: Candidate, home: Coord, target: CLLocationDistance) -> Candidate {
+        guard candidate.loop.waypoints.count == 2, let homeNode = graph.nearestNode(to: home) else { return candidate }
+        let options = candidate.loop.waypoints.map { graph.nearestNodes(to: $0, count: 4, minLinks: 3, within: 220) }
+        var best = candidate
+        for a in options[0] {
+            for b in options[1] where a != b {
+                guard var other = assemble(home: home, origin: home, stops: [homeNode, a, b, homeNode],
+                                           waypoints: [graph.nodes[a], graph.nodes[b]], bearing: candidate.bearing) else { continue }
+                other.miss = abs(other.loop.distance / target - 1)
+                let better = other.fits != best.fits ? other.fits : other.score > best.score
+                if better { best = other }
+            }
+        }
+        return best
     }
 
     // MARK: Routes
@@ -126,7 +167,11 @@ struct StreetRouter: Sendable {
             if n != stops.last { stops.append(n) }
         }
         stops.append(homeNode)
+        return assemble(home: home, origin: start ?? home, stops: stops, waypoints: waypoints, bearing: bearing)
+    }
 
+    /// Joins the junctions in `stops` by the cheapest streets and describes the result.
+    private func assemble(home: Coord, origin: Coord, stops: [Int], waypoints: [Coord], bearing: Double?) -> Candidate? {
         var hops: [StreetGraph.Hop] = []
         var used = Set<Int>()
         for (a, b) in zip(stops, stops.dropFirst()) {
@@ -139,7 +184,6 @@ struct StreetRouter: Sendable {
         var path: [Coord] = []
         var steps: [TurnStep] = []
         var segments: [LoopSegment] = []
-        let origin = start ?? home
         if origin.distance(to: graph.nodes[stops[0]]) > 3 { path.append(origin) }
 
         var seen = Set<Int>()
@@ -179,7 +223,43 @@ struct StreetRouter: Sendable {
                                segments: segments, distance: distance, duration: distance / metresPerSecond)
         return Candidate(loop: loop, used: used, spur: spur,
                          repeatShare: total > 0 ? repeated / total : 0, mainShare: total > 0 ? main / total : 0,
-                         bearing: bearing)
+                         bearing: bearing, doubledShare: Self.doubledShare(of: path, home: home),
+                         reversals: steps.filter { $0.kind == .uTurn }.count)
+    }
+
+    /// Share of a path that runs within 60 m of a part of itself more than 250 m further along:
+    /// going down one street and back up the next, or a knot round a turning point.
+    /// The stretch near home is left out, since every loop leaves and returns there.
+    static func doubledShare(of path: [Coord], home: Coord) -> Double {
+        // Work in flat metres around home: this runs for every candidate, so it has to be quick.
+        let perLat = 111_320.0, perLon = 111_320.0 * cos(home.lat * .pi / 180)
+        func flat(_ c: Coord) -> (x: Double, y: Double) { ((c.lon - home.lon) * perLon, (c.lat - home.lat) * perLat) }
+        // One sample every 25 m, with how far along the path it is.
+        var samples: [(x: Double, y: Double, along: Double)] = []
+        var along = 0.0, next = 0.0
+        for (a, b) in zip(path, path.dropFirst()) {
+            let p = flat(a), q = flat(b)
+            let length = ((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)).squareRoot()
+            while next <= along + length, length > 0 {
+                let t = (next - along) / length
+                samples.append((p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, next))
+                next += 25
+            }
+            along += length
+        }
+        guard samples.count > 20 else { return 0 }
+        var close = 0, counted = 0
+        for a in samples where a.x * a.x + a.y * a.y > 150 * 150 {
+            counted += 1
+            for b in samples where abs(a.along - b.along) > 250 {
+                let dx = a.x - b.x, dy = a.y - b.y
+                if dx * dx + dy * dy < 60 * 60 {
+                    close += 1
+                    break
+                }
+            }
+        }
+        return counted > 0 ? Double(close) / Double(counted) : 0
     }
 
     // MARK: Turns
