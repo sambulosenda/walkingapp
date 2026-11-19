@@ -12,6 +12,8 @@ struct StreetSegment {
     var factor: Double
     /// A main road, with or without a pavement.
     var isMain: Bool
+    /// A path or pavement that runs right beside a big road, so it is as loud as walking the road.
+    var besideBigRoad = false
 }
 
 /// The walkable streets around home, from OpenStreetMap, as junctions joined by segments.
@@ -36,6 +38,14 @@ final class StreetGraph: @unchecked Sendable {
     let nodes: [Coord]
     let segments: [StreetSegment]
     let links: [[Link]]
+    /// For each segment, the segments that run alongside it: the two pavements of one road, or a road
+    /// and the path beside it. Walking out on one and back on the other is doubling back.
+    let twins: [[Int]]
+    /// Junction positions in flat metres from the centre, for quick distances.
+    private let flat: [(x: Double, y: Double)]
+    /// The direction of travel, in radians, at the `from` end and at the `to` end of each segment.
+    private let startHeading: [Double]
+    private let endHeading: [Double]
     /// Junctions in the largest connected piece, keyed by grid cell, for finding the nearest one.
     private let grid: [Int64: [Int]]
 
@@ -60,12 +70,14 @@ final class StreetGraph: @unchecked Sendable {
         guard let decoded = try? JSONDecoder().decode(Overpass.self, from: data) else { return nil }
         var coords: [Int64: Coord] = [:]
         var ways: [(nodes: [Int64], name: String?, rule: WayRule)] = []
+        // Big roads, walkable or not, kept to find the paths that run beside them.
+        var bigRoads: [(nodes: [Int64], reach: Double, factor: Double)] = []
         for element in decoded.elements {
             if element.type == "node", let lat = element.lat, let lon = element.lon {
                 coords[element.id] = Coord(lat: lat, lon: lon)
-            } else if element.type == "way", let ids = element.nodes, ids.count > 1,
-                      let tags = element.tags, let rule = WayRule(tags: tags) {
-                ways.append((ids, tags["name"] ?? tags["ref"], rule))
+            } else if element.type == "way", let ids = element.nodes, ids.count > 1, let tags = element.tags {
+                if let big = WayRule.bigRoad(tags: tags) { bigRoads.append((ids, big.reach, big.factor)) }
+                if let rule = WayRule(tags: tags) { ways.append((ids, tags["name"] ?? tags["ref"], rule)) }
             }
         }
 
@@ -106,6 +118,80 @@ final class StreetGraph: @unchecked Sendable {
         }
         guard !segments.isEmpty else { return nil }
 
+        // Mark quiet-looking paths that hug a big road: a cycle path along a dual carriageway is no quieter than the road.
+        if !bigRoads.isEmpty {
+            let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+            func flat(_ c: Coord) -> (x: Double, y: Double) { ((c.lon - center.lon) * perLon, (c.lat - center.lat) * perLat) }
+            func samples(_ path: [Coord], every spacing: Double) -> [(x: Double, y: Double)] {
+                var out: [(x: Double, y: Double)] = []
+                var along = 0.0, next = 0.0
+                for (a, b) in zip(path, path.dropFirst()) {
+                    let p = flat(a), q = flat(b)
+                    let length = ((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)).squareRoot()
+                    while next <= along + length, length > 0 {
+                        let t = (next - along) / length
+                        out.append((p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t))
+                        next += spacing
+                    }
+                    along += length
+                }
+                if out.isEmpty, let first = path.first { out.append(flat(first)) }
+                return out
+            }
+            let cell = 50.0
+            func bucket(_ x: Double, _ y: Double) -> Int64 {
+                Self.key(x: Int64((x / cell).rounded(.down)), y: Int64((y / cell).rounded(.down)))
+            }
+            var near: [Int64: [(x: Double, y: Double, reach: Double, factor: Double)]] = [:]
+            for road in bigRoads {
+                for p in samples(road.nodes.compactMap { coords[$0] }, every: 15) {
+                    near[bucket(p.x, p.y), default: []].append((p.x, p.y, road.reach, road.factor))
+                }
+            }
+            for i in segments.indices where !segments[i].isMain {
+                let points = samples(segments[i].path, every: 20)
+                var close = 0
+                var worst = 1.0
+                for p in points {
+                    var hit = 0.0
+                    for dx in [-cell, 0, cell] {
+                        for dy in [-cell, 0, cell] {
+                            for road in near[bucket(p.x + dx, p.y + dy)] ?? [] {
+                                let ex = p.x - road.x, ey = p.y - road.y
+                                if ex * ex + ey * ey <= road.reach * road.reach { hit = max(hit, road.factor) }
+                            }
+                        }
+                    }
+                    if hit > 0 { close += 1; worst = max(worst, hit) }
+                }
+                if Double(close) >= Double(points.count) * 0.5 {
+                    segments[i].besideBigRoad = true
+                    segments[i].factor *= worst
+                }
+            }
+        }
+
+        self.twins = Self.twins(of: segments, around: center)
+
+        let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+        func metres(_ c: Coord) -> (x: Double, y: Double) { ((c.lon - center.lon) * perLon, (c.lat - center.lat) * perLat) }
+        flat = nodes.map(metres)
+        // Headings are taken over the first and last 15 m, so a kink right at a junction does not mislead.
+        func heading(along path: [Coord]) -> Double {
+            let start = metres(path[0])
+            var end = start, walked = 0.0, last = start
+            for c in path.dropFirst() {
+                let p = metres(c)
+                walked += ((p.x - last.x) * (p.x - last.x) + (p.y - last.y) * (p.y - last.y)).squareRoot()
+                end = p
+                last = p
+                if walked >= 15 { break }
+            }
+            return atan2(end.y - start.y, end.x - start.x)
+        }
+        startHeading = segments.map { heading(along: $0.path) }
+        endHeading = segments.map { heading(along: Array($0.path.reversed())) + .pi }
+
         var links = [[Link]](repeating: [], count: nodes.count)
         for (i, s) in segments.enumerated() {
             links[s.from].append(Link(node: s.to, segment: i, forward: true))
@@ -142,6 +228,61 @@ final class StreetGraph: @unchecked Sendable {
         self.grid = grid
     }
 
+    /// Pairs up segments that run side by side within 30 m, pointing the same or opposite way.
+    private static func twins(of segments: [StreetSegment], around center: Coord) -> [[Int]] {
+        let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+        let reach = 30.0, cell = 30.0
+        func bucket(_ x: Double, _ y: Double) -> Int64 {
+            key(x: Int64((x / cell).rounded(.down)), y: Int64((y / cell).rounded(.down)))
+        }
+        // A point every 15 m along each segment long enough to be a stretch of street, not a crossing.
+        var samples = [[(x: Double, y: Double)]](repeating: [], count: segments.count)
+        var heading = [Double](repeating: 0, count: segments.count)
+        var grid: [Int64: [(x: Double, y: Double, segment: Int)]] = [:]
+        for (i, s) in segments.enumerated() where s.length >= 25 {
+            let flat = s.path.map { (x: ($0.lon - center.lon) * perLon, y: ($0.lat - center.lat) * perLat) }
+            heading[i] = atan2(flat[flat.count - 1].y - flat[0].y, flat[flat.count - 1].x - flat[0].x)
+            var along = 0.0, next = 0.0
+            for (p, q) in zip(flat, flat.dropFirst()) {
+                let length = ((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)).squareRoot()
+                while next <= along + length, length > 0 {
+                    let t = (next - along) / length
+                    let point = (x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t)
+                    samples[i].append(point)
+                    grid[bucket(point.x, point.y), default: []].append((point.x, point.y, i))
+                    next += 15
+                }
+                along += length
+            }
+        }
+        var twins = [[Int]](repeating: [], count: segments.count)
+        for i in segments.indices where !samples[i].isEmpty {
+            var hits: [Int: Int] = [:]
+            for p in samples[i] {
+                var seen = Set<Int>()
+                for dx in [-cell, 0, cell] {
+                    for dy in [-cell, 0, cell] {
+                        for other in grid[bucket(p.x + dx, p.y + dy)] ?? [] where other.segment != i && !seen.contains(other.segment) {
+                            let ex = p.x - other.x, ey = p.y - other.y
+                            if ex * ex + ey * ey <= reach * reach { seen.insert(other.segment) }
+                        }
+                    }
+                }
+                for s in seen { hits[s, default: 0] += 1 }
+            }
+            for (other, count) in hits where Double(count) >= Double(samples[i].count) * 0.6 {
+                // Side by side means parallel: within 25 degrees, either direction.
+                var turn = abs(heading[i] - heading[other]).truncatingRemainder(dividingBy: .pi)
+                if turn > .pi / 2 { turn = .pi - turn }
+                // Segments that join end to end are the same street carrying on, not a twin.
+                let joined = segments[i].from == segments[other].from || segments[i].from == segments[other].to
+                    || segments[i].to == segments[other].from || segments[i].to == segments[other].to
+                if turn < 25 * .pi / 180, !joined { twins[i].append(other) }
+            }
+        }
+        return twins
+    }
+
     // MARK: Lookups
 
     private static func cell(for c: Coord) -> (x: Int64, y: Int64) {
@@ -171,6 +312,22 @@ final class StreetGraph: @unchecked Sendable {
         return best?.node
     }
 
+    /// The closest few junctions with at least `minLinks` streets meeting, nearest first, within `reach` metres.
+    func nearestNodes(to c: Coord, count: Int, minLinks: Int, within reach: CLLocationDistance) -> [Int] {
+        let home = Self.cell(for: c)
+        let rings = Int64((reach / 100).rounded(.up)) + 1
+        var found: [(node: Int, distance: CLLocationDistance)] = []
+        for dx in -rings...rings {
+            for dy in -rings...rings {
+                for n in grid[Self.key(x: home.x + dx, y: home.y + dy)] ?? [] where links[n].count >= minLinks {
+                    let d = nodes[n].distance(to: c)
+                    if d <= reach { found.append((n, d)) }
+                }
+            }
+        }
+        return found.sorted { $0.distance < $1.distance }.prefix(count).map(\.node)
+    }
+
     /// True when the graph holds the streets within `radius` of `center`.
     func covers(_ center: Coord, radius: CLLocationDistance) -> Bool {
         self.center.distance(to: center) + radius <= self.radius + 1
@@ -178,34 +335,74 @@ final class StreetGraph: @unchecked Sendable {
 
     // MARK: Shortest path
 
-    /// The cheapest way from one junction to another. `cost` returns infinity for a segment that must not be used.
-    func shortest(from source: Int, to target: Int, cost: (Int) -> Double) -> [Hop]? {
+    /// Metres added to a route for turning from one stretch onto the next. Nothing for carrying
+    /// straight on or following a bend; more the sharper the turn, most for doubling straight back.
+    func turnCost(from a: Hop, to b: Hop, at node: Int) -> Double {
+        if a.segment == b.segment { return 150 }
+        guard links[node].count >= 3 else { return 0 }
+        let leaving = a.forward ? endHeading[a.segment] : startHeading[a.segment] + .pi
+        let entering = b.forward ? startHeading[b.segment] : endHeading[b.segment] + .pi
+        var turn = abs(entering - leaving).truncatingRemainder(dividingBy: 2 * .pi)
+        if turn > .pi { turn = 2 * .pi - turn }
+        let degrees = turn * 180 / .pi
+        if degrees < 30 { return 0 }
+        if degrees < 60 { return 15 }
+        if degrees < 150 { return 40 }
+        return 150
+    }
+
+    /// The cheapest way from one junction to another, counting the turns as well as the streets.
+    /// `cost` returns infinity for a segment that must not be used. `arriving` is the stretch the walker
+    /// comes in on, so the first turn is counted too.
+    func shortest(from source: Int, to target: Int, arriving: Hop? = nil, cost: (Int) -> Double) -> [Hop]? {
         if source == target { return [] }
-        var best = [Double](repeating: .infinity, count: nodes.count)
-        var arrivedBy = [Hop?](repeating: nil, count: nodes.count)
+        // The search runs over stretches-with-a-direction, so each step knows which way it arrived.
+        // Straight-line distance to the target steers it: no route can be shorter than that.
+        let goal = flat[target]
+        func remaining(_ node: Int) -> Double {
+            let dx = flat[node].x - goal.x, dy = flat[node].y - goal.y
+            return (dx * dx + dy * dy).squareRoot()
+        }
+        var best = [Double](repeating: .infinity, count: segments.count * 2)
+        var cameFrom = [Int32](repeating: -1, count: segments.count * 2)
         var heap = MinHeap()
-        best[source] = 0
-        heap.push(0, source)
-        while let (d, u) = heap.pop() {
-            if d > best[u] { continue }
-            if u == target { break }
-            for link in links[u] {
+        for link in links[source] {
+            let c = cost(link.segment)
+            guard c.isFinite else { continue }
+            let hop = Hop(segment: link.segment, forward: link.forward)
+            let d = c + (arriving.map { turnCost(from: $0, to: hop, at: source) } ?? 0)
+            let state = link.segment * 2 + (link.forward ? 0 : 1)
+            if d < best[state] {
+                best[state] = d
+                heap.push(d + remaining(link.node), state)
+            }
+        }
+        var arrived = -1
+        while let (priority, state) = heap.pop() {
+            let segment = state / 2, forward = state % 2 == 0
+            let node = forward ? segments[segment].to : segments[segment].from
+            let d = best[state]
+            if priority > d + remaining(node) + 0.001 { continue }
+            if node == target { arrived = state; break }
+            let here = Hop(segment: segment, forward: forward)
+            for link in links[node] {
                 let c = cost(link.segment)
                 guard c.isFinite else { continue }
-                let next = d + c
-                if next < best[link.node] {
-                    best[link.node] = next
-                    arrivedBy[link.node] = Hop(segment: link.segment, forward: link.forward)
-                    heap.push(next, link.node)
+                let next = link.segment * 2 + (link.forward ? 0 : 1)
+                let total = d + c + turnCost(from: here, to: Hop(segment: link.segment, forward: link.forward), at: node)
+                if total < best[next] {
+                    best[next] = total
+                    cameFrom[next] = Int32(state)
+                    heap.push(total + remaining(link.node), next)
                 }
             }
         }
-        guard best[target].isFinite else { return nil }
+        guard arrived >= 0 else { return nil }
         var hops: [Hop] = []
-        var n = target
-        while n != source, let hop = arrivedBy[n] {
-            hops.append(hop)
-            n = hop.forward ? segments[hop.segment].from : segments[hop.segment].to
+        var state = arrived
+        while state >= 0 {
+            hops.append(Hop(segment: state / 2, forward: state % 2 == 0))
+            state = Int(cameFrom[state])
         }
         return hops.reversed()
     }
@@ -218,6 +415,33 @@ final class StreetGraph: @unchecked Sendable {
     /// Which segments the walker has covered, in segment order.
     func walked(in coverage: Coverage) -> [Bool] {
         segments.map { coverage.walkedFraction(of: $0.path) >= Self.walkedShare }
+    }
+
+    /// The stretches of street a walk covered that had not been walked before.
+    func newlyWalked(by trail: [Coord], before: Coverage) -> [LoopSegment] {
+        guard let first = trail.first else { return [] }
+        var today = Coverage()
+        today.mark(trail)
+        // Only streets inside the box the walk fits in can have been covered.
+        var minLat = first.lat, maxLat = first.lat, minLon = first.lon, maxLon = first.lon
+        for c in trail {
+            minLat = min(minLat, c.lat); maxLat = max(maxLat, c.lat)
+            minLon = min(minLon, c.lon); maxLon = max(maxLon, c.lon)
+        }
+        let margin = 0.0005
+        var out: [LoopSegment] = []
+        // The far pavement of a street just counted is the same street, not another new one.
+        var counted = Set<Int>()
+        for (i, s) in segments.enumerated() where !twins[i].contains(where: counted.contains) {
+            let middle = s.path[s.path.count / 2]
+            guard middle.lat > minLat - margin, middle.lat < maxLat + margin,
+                  middle.lon > minLon - margin, middle.lon < maxLon + margin else { continue }
+            if today.walkedFraction(of: s.path) >= Self.walkedShare, before.walkedFraction(of: s.path) < Self.walkedShare {
+                out.append(LoopSegment(path: s.path, street: s.name, isNew: true, length: s.length))
+                counted.insert(i)
+            }
+        }
+        return out
     }
 
     /// Which segments run along a reported stretch. A street that only crosses one is left alone.
@@ -263,6 +487,16 @@ struct WayRule {
     var factor: Double
     var isMain: Bool
 
+    /// For a big road: how close a path must run to count as beside it, in metres,
+    /// and how much that path should be avoided. Nil for ordinary streets.
+    static func bigRoad(tags: [String: String]) -> (reach: Double, factor: Double)? {
+        switch tags["highway"] ?? "" {
+        case "motorway", "motorway_link", "trunk", "trunk_link": (40, 4)
+        case "primary", "primary_link": (25, 2)
+        default: nil
+        }
+    }
+
     /// Nil for ways a walker must not or should not use.
     init?(tags: [String: String]) {
         guard let kind = tags["highway"] else { return nil }
@@ -287,16 +521,17 @@ struct WayRule {
                 .contains(tags["service"] ?? "") { return nil }
             factor = 1.3
         case "tertiary", "tertiary_link":
-            factor = 1.2
+            factor = 1.3
             isMain = true
         case "secondary", "secondary_link":
-            factor = 1.4
+            factor = 1.8
             isMain = true
         case "primary", "primary_link":
-            factor = 1.7
+            factor = 2.6
             isMain = true
         case "trunk", "trunk_link":
-            factor = 2.5
+            // Legal on foot, but nobody's idea of a walk: used only when there is no other way through.
+            factor = 6
             isMain = true
         default:
             // Motorways, roads being built, bus guideways and anything else not meant for walking.
@@ -315,6 +550,9 @@ struct WayRule {
                 // No pavement recorded on a fast road: assume the worst.
                 factor *= 3
             }
+            // Big roundabouts and the one-way halves of dual carriageways are loud and slow to cross.
+            if ["roundabout", "circular"].contains(tags["junction"] ?? "") { factor *= 2 }
+            else if tags["oneway"] == "yes", kind != "tertiary", kind != "tertiary_link" { factor *= 1.5 }
         }
         self.factor = factor
         self.isMain = isMain

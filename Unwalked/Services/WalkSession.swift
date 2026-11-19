@@ -383,9 +383,17 @@ final class WalkSession {
         let path = trail.count > 1 ? trail : Array(route.path.prefix(progressIndex + 1))
         var walkedToday = Coverage()
         walkedToday.mark(path)
-        let newSegments = plannedLoop.segments.filter { $0.isNew && walkedToday.walkedFraction(of: $0.path) > 0.6 }
-        let newStreets = Set(newSegments.enumerated().map { $0.element.street ?? "segment-\($0.offset)" }).count
         let distance = max(walkedDistance, Geo.length(of: path))
+        var newSegments: [LoopSegment]
+        if let streets = library.streets {
+            // With street data, count every stretch this walk covered for the first time,
+            // wherever the walker actually went, not just what the plan had in mind.
+            newSegments = streets.newlyWalked(by: path, before: library.coverage)
+        } else {
+            newSegments = plannedLoop.segments.filter { $0.isNew && walkedToday.walkedFraction(of: $0.path) > 0.6 }
+        }
+        let names = Set(newSegments.compactMap(\.street))
+        let newStreets = names.isEmpty ? newSegments.count : names.count
         let newDistance = newSegments.reduce(0) { $0 + $1.length }
 
         let before = library.coverageFraction
