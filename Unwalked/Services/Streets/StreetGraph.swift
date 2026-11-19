@@ -41,6 +41,11 @@ final class StreetGraph: @unchecked Sendable {
     /// For each segment, the segments that run alongside it: the two pavements of one road, or a road
     /// and the path beside it. Walking out on one and back on the other is doubling back.
     let twins: [[Int]]
+    /// Junction positions in flat metres from the centre, for quick distances.
+    private let flat: [(x: Double, y: Double)]
+    /// The direction of travel, in radians, at the `from` end and at the `to` end of each segment.
+    private let startHeading: [Double]
+    private let endHeading: [Double]
     /// Junctions in the largest connected piece, keyed by grid cell, for finding the nearest one.
     private let grid: [Int64: [Int]]
 
@@ -167,6 +172,25 @@ final class StreetGraph: @unchecked Sendable {
         }
 
         self.twins = Self.twins(of: segments, around: center)
+
+        let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+        func metres(_ c: Coord) -> (x: Double, y: Double) { ((c.lon - center.lon) * perLon, (c.lat - center.lat) * perLat) }
+        flat = nodes.map(metres)
+        // Headings are taken over the first and last 15 m, so a kink right at a junction does not mislead.
+        func heading(along path: [Coord]) -> Double {
+            let start = metres(path[0])
+            var end = start, walked = 0.0, last = start
+            for c in path.dropFirst() {
+                let p = metres(c)
+                walked += ((p.x - last.x) * (p.x - last.x) + (p.y - last.y) * (p.y - last.y)).squareRoot()
+                end = p
+                last = p
+                if walked >= 15 { break }
+            }
+            return atan2(end.y - start.y, end.x - start.x)
+        }
+        startHeading = segments.map { heading(along: $0.path) }
+        endHeading = segments.map { heading(along: Array($0.path.reversed())) + .pi }
 
         var links = [[Link]](repeating: [], count: nodes.count)
         for (i, s) in segments.enumerated() {
@@ -311,34 +335,74 @@ final class StreetGraph: @unchecked Sendable {
 
     // MARK: Shortest path
 
-    /// The cheapest way from one junction to another. `cost` returns infinity for a segment that must not be used.
-    func shortest(from source: Int, to target: Int, cost: (Int) -> Double) -> [Hop]? {
+    /// Metres added to a route for turning from one stretch onto the next. Nothing for carrying
+    /// straight on or following a bend; more the sharper the turn, most for doubling straight back.
+    func turnCost(from a: Hop, to b: Hop, at node: Int) -> Double {
+        if a.segment == b.segment { return 150 }
+        guard links[node].count >= 3 else { return 0 }
+        let leaving = a.forward ? endHeading[a.segment] : startHeading[a.segment] + .pi
+        let entering = b.forward ? startHeading[b.segment] : endHeading[b.segment] + .pi
+        var turn = abs(entering - leaving).truncatingRemainder(dividingBy: 2 * .pi)
+        if turn > .pi { turn = 2 * .pi - turn }
+        let degrees = turn * 180 / .pi
+        if degrees < 30 { return 0 }
+        if degrees < 60 { return 15 }
+        if degrees < 150 { return 40 }
+        return 150
+    }
+
+    /// The cheapest way from one junction to another, counting the turns as well as the streets.
+    /// `cost` returns infinity for a segment that must not be used. `arriving` is the stretch the walker
+    /// comes in on, so the first turn is counted too.
+    func shortest(from source: Int, to target: Int, arriving: Hop? = nil, cost: (Int) -> Double) -> [Hop]? {
         if source == target { return [] }
-        var best = [Double](repeating: .infinity, count: nodes.count)
-        var arrivedBy = [Hop?](repeating: nil, count: nodes.count)
+        // The search runs over stretches-with-a-direction, so each step knows which way it arrived.
+        // Straight-line distance to the target steers it: no route can be shorter than that.
+        let goal = flat[target]
+        func remaining(_ node: Int) -> Double {
+            let dx = flat[node].x - goal.x, dy = flat[node].y - goal.y
+            return (dx * dx + dy * dy).squareRoot()
+        }
+        var best = [Double](repeating: .infinity, count: segments.count * 2)
+        var cameFrom = [Int32](repeating: -1, count: segments.count * 2)
         var heap = MinHeap()
-        best[source] = 0
-        heap.push(0, source)
-        while let (d, u) = heap.pop() {
-            if d > best[u] { continue }
-            if u == target { break }
-            for link in links[u] {
+        for link in links[source] {
+            let c = cost(link.segment)
+            guard c.isFinite else { continue }
+            let hop = Hop(segment: link.segment, forward: link.forward)
+            let d = c + (arriving.map { turnCost(from: $0, to: hop, at: source) } ?? 0)
+            let state = link.segment * 2 + (link.forward ? 0 : 1)
+            if d < best[state] {
+                best[state] = d
+                heap.push(d + remaining(link.node), state)
+            }
+        }
+        var arrived = -1
+        while let (priority, state) = heap.pop() {
+            let segment = state / 2, forward = state % 2 == 0
+            let node = forward ? segments[segment].to : segments[segment].from
+            let d = best[state]
+            if priority > d + remaining(node) + 0.001 { continue }
+            if node == target { arrived = state; break }
+            let here = Hop(segment: segment, forward: forward)
+            for link in links[node] {
                 let c = cost(link.segment)
                 guard c.isFinite else { continue }
-                let next = d + c
-                if next < best[link.node] {
-                    best[link.node] = next
-                    arrivedBy[link.node] = Hop(segment: link.segment, forward: link.forward)
-                    heap.push(next, link.node)
+                let next = link.segment * 2 + (link.forward ? 0 : 1)
+                let total = d + c + turnCost(from: here, to: Hop(segment: link.segment, forward: link.forward), at: node)
+                if total < best[next] {
+                    best[next] = total
+                    cameFrom[next] = Int32(state)
+                    heap.push(total + remaining(link.node), next)
                 }
             }
         }
-        guard best[target].isFinite else { return nil }
+        guard arrived >= 0 else { return nil }
         var hops: [Hop] = []
-        var n = target
-        while n != source, let hop = arrivedBy[n] {
-            hops.append(hop)
-            n = hop.forward ? segments[hop.segment].from : segments[hop.segment].to
+        var state = arrived
+        while state >= 0 {
+            hops.append(Hop(segment: state / 2, forward: state % 2 == 0))
+            state = Int(cameFrom[state])
         }
         return hops.reversed()
     }

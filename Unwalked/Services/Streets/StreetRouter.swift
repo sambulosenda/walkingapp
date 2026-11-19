@@ -43,7 +43,10 @@ struct StreetRouter: Sendable {
         var fits: Bool { miss <= StreetRouter.fitTolerance && spur <= StreetRouter.longestSpur }
         var score: Double {
             loop.newFraction - 1.5 * mainShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
+                - 0.03 * turnsPerKm
         }
+        /// Turns per kilometre: a loop that turns every hundred metres is tiring to follow.
+        var turnsPerKm: Double { loop.distance > 0 ? Double(loop.steps.count) / (loop.distance / 1000) : 0 }
     }
 
     // MARK: Loops
@@ -176,7 +179,7 @@ struct StreetRouter: Sendable {
         var hops: [StreetGraph.Hop] = []
         var used = Set<Int>()
         for (a, b) in zip(stops, stops.dropFirst()) {
-            guard let leg = graph.shortest(from: a, to: b, cost: { cost($0, used: used) }) else { return nil }
+            guard let leg = graph.shortest(from: a, to: b, arriving: hops.last, cost: { cost($0, used: used) }) else { return nil }
             hops += leg
             for hop in leg {
                 used.insert(hop.segment)
