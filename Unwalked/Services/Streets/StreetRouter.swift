@@ -29,6 +29,7 @@ struct StreetRouter: Sendable {
         /// Longest out-and-back stretch, in metres.
         var spur: CLLocationDistance
         var repeatShare: Double
+        /// Share of the loop on a main road, or on a path right beside a big one.
         var mainShare: Double
         /// How far the length is from the target, as a share of it.
         var miss = 0.0
@@ -206,7 +207,7 @@ struct StreetRouter: Sendable {
             } else {
                 run = 0
             }
-            if s.isMain { main += s.length }
+            if s.isMain || s.besideBigRoad { main += s.length }
             total += s.length
             segments.append(LoopSegment(path: oriented, street: s.name, isNew: !again && !walked[hop.segment], length: s.length))
             previous = oriented

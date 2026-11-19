@@ -12,6 +12,8 @@ struct StreetSegment {
     var factor: Double
     /// A main road, with or without a pavement.
     var isMain: Bool
+    /// A path or pavement that runs right beside a big road, so it is as loud as walking the road.
+    var besideBigRoad = false
 }
 
 /// The walkable streets around home, from OpenStreetMap, as junctions joined by segments.
@@ -60,12 +62,14 @@ final class StreetGraph: @unchecked Sendable {
         guard let decoded = try? JSONDecoder().decode(Overpass.self, from: data) else { return nil }
         var coords: [Int64: Coord] = [:]
         var ways: [(nodes: [Int64], name: String?, rule: WayRule)] = []
+        // Big roads, walkable or not, kept to find the paths that run beside them.
+        var bigRoads: [(nodes: [Int64], reach: Double, factor: Double)] = []
         for element in decoded.elements {
             if element.type == "node", let lat = element.lat, let lon = element.lon {
                 coords[element.id] = Coord(lat: lat, lon: lon)
-            } else if element.type == "way", let ids = element.nodes, ids.count > 1,
-                      let tags = element.tags, let rule = WayRule(tags: tags) {
-                ways.append((ids, tags["name"] ?? tags["ref"], rule))
+            } else if element.type == "way", let ids = element.nodes, ids.count > 1, let tags = element.tags {
+                if let big = WayRule.bigRoad(tags: tags) { bigRoads.append((ids, big.reach, big.factor)) }
+                if let rule = WayRule(tags: tags) { ways.append((ids, tags["name"] ?? tags["ref"], rule)) }
             }
         }
 
@@ -105,6 +109,59 @@ final class StreetGraph: @unchecked Sendable {
             }
         }
         guard !segments.isEmpty else { return nil }
+
+        // Mark quiet-looking paths that hug a big road: a cycle path along a dual carriageway is no quieter than the road.
+        if !bigRoads.isEmpty {
+            let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+            func flat(_ c: Coord) -> (x: Double, y: Double) { ((c.lon - center.lon) * perLon, (c.lat - center.lat) * perLat) }
+            func samples(_ path: [Coord], every spacing: Double) -> [(x: Double, y: Double)] {
+                var out: [(x: Double, y: Double)] = []
+                var along = 0.0, next = 0.0
+                for (a, b) in zip(path, path.dropFirst()) {
+                    let p = flat(a), q = flat(b)
+                    let length = ((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)).squareRoot()
+                    while next <= along + length, length > 0 {
+                        let t = (next - along) / length
+                        out.append((p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t))
+                        next += spacing
+                    }
+                    along += length
+                }
+                if out.isEmpty, let first = path.first { out.append(flat(first)) }
+                return out
+            }
+            let cell = 50.0
+            func bucket(_ x: Double, _ y: Double) -> Int64 {
+                Self.key(x: Int64((x / cell).rounded(.down)), y: Int64((y / cell).rounded(.down)))
+            }
+            var near: [Int64: [(x: Double, y: Double, reach: Double, factor: Double)]] = [:]
+            for road in bigRoads {
+                for p in samples(road.nodes.compactMap { coords[$0] }, every: 15) {
+                    near[bucket(p.x, p.y), default: []].append((p.x, p.y, road.reach, road.factor))
+                }
+            }
+            for i in segments.indices where !segments[i].isMain {
+                let points = samples(segments[i].path, every: 20)
+                var close = 0
+                var worst = 1.0
+                for p in points {
+                    var hit = 0.0
+                    for dx in [-cell, 0, cell] {
+                        for dy in [-cell, 0, cell] {
+                            for road in near[bucket(p.x + dx, p.y + dy)] ?? [] {
+                                let ex = p.x - road.x, ey = p.y - road.y
+                                if ex * ex + ey * ey <= road.reach * road.reach { hit = max(hit, road.factor) }
+                            }
+                        }
+                    }
+                    if hit > 0 { close += 1; worst = max(worst, hit) }
+                }
+                if Double(close) >= Double(points.count) * 0.5 {
+                    segments[i].besideBigRoad = true
+                    segments[i].factor *= worst
+                }
+            }
+        }
 
         var links = [[Link]](repeating: [], count: nodes.count)
         for (i, s) in segments.enumerated() {
@@ -278,6 +335,16 @@ final class StreetGraph: @unchecked Sendable {
 struct WayRule {
     var factor: Double
     var isMain: Bool
+
+    /// For a big road: how close a path must run to count as beside it, in metres,
+    /// and how much that path should be avoided. Nil for ordinary streets.
+    static func bigRoad(tags: [String: String]) -> (reach: Double, factor: Double)? {
+        switch tags["highway"] ?? "" {
+        case "motorway", "motorway_link", "trunk", "trunk_link": (40, 4)
+        case "primary", "primary_link": (25, 2)
+        default: nil
+        }
+    }
 
     /// Nil for ways a walker must not or should not use.
     init?(tags: [String: String]) {
