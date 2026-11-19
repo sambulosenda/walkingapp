@@ -12,6 +12,20 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEVELOPMENT_TEAM: ""
 
+fileGroups:
+  - Unwalked.storekit
+
+schemes:
+  Unwalked:
+    build:
+      targets:
+        Unwalked: all
+    run:
+      config: Debug
+      storeKitConfiguration: Unwalked.storekit
+    archive:
+      config: Release
+
 targets:
   Unwalked:
     type: application
@@ -33,7 +47,7 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         NSLocationWhenInUseUsageDescription: Unwalked uses your location while you walk, to guide you and fill in your map. Your walks stay on this phone.
         NSLocationAlwaysAndWhenInUseUsageDescription: Unwalked keeps guiding you with the phone in your pocket. Your walks stay on this phone.
-        UIBackgroundModes: [location]
+        UIBackgroundModes: [location, audio]
         NSSupportsLiveActivities: true
     dependencies:
       - target: UnwalkedWidgets

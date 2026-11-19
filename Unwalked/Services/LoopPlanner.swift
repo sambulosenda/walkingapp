@@ -17,6 +17,10 @@ struct LoopPlanner {
 
     /// Ratio of street distance to straight-line distance in a typical town.
     private static let detour = 1.25
+    /// A loop is close enough when its length is within this share of the time asked for.
+    static let fitTolerance = 0.05
+    /// Attempts at resizing a loop to fit. Each costs three directions requests, which Apple rate-limits.
+    private static let fitPasses = 3
 
     func loops(from home: Coord, minutes: Int, rotation: Double = 0) async throws -> [PlannedLoop] {
         let target = Double(minutes) * 60 * metresPerSecond
@@ -38,14 +42,16 @@ struct LoopPlanner {
         let spread = 35.0
         var radius = target / ((2 + 2 * sin(spread * .pi / 180)) * Self.detour)
         var best: PlannedLoop?
-        for _ in 0..<2 {
+        var bestMiss = Double.infinity
+        for _ in 0..<Self.fitPasses {
             let a = Geo.destination(from: home, bearing: bearing - spread, distance: radius)
             let b = Geo.destination(from: home, bearing: bearing + spread, distance: radius)
             guard let loop = try await build(home: home, through: [a, b], bearing: bearing) else { return best }
             if crossesReport(loop.path) { return best }
-            best = loop
             let error = loop.distance / target
-            if abs(error - 1) < 0.12 { break }
+            let miss = abs(error - 1)
+            if miss < bestMiss { best = loop; bestMiss = miss }
+            if miss < Self.fitTolerance { break }
             radius /= error
         }
         return best

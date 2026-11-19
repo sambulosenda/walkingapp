@@ -49,6 +49,12 @@ final class WalkSession {
     private var lateDismissedAt: Int?
     private var lastFixDate = Date()
     private var isFindingShortcut = false
+    private var lastReplanAttempt: Date?
+
+    /// How far from the route counts as having left it.
+    static let offRouteMetres: CLLocationDistance = 30
+    /// Share of the requested time a walk may overrun before it counts as late.
+    static let lateShare = 0.10
 
     init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge) {
         plannedLoop = loop
@@ -152,7 +158,7 @@ final class WalkSession {
         let window = Array(route.path.prefix(min(route.path.count, progressIndex + 200)))
         let near = Geo.nearest(to: point, on: window, from: max(0, progressIndex - 3))
 
-        if near.distance > 35 {
+        if near.distance > Self.offRouteMetres {
             offRouteStrikes += 1
             if offRouteStrikes >= 2 {
                 let firstTime = offRoute == nil
@@ -160,7 +166,14 @@ final class WalkSession {
                 offRoute = OffRoute(street: nextStep?.street ?? "Your loop",
                                     metresBehind: near.distance,
                                     minutesLate: max(1, Int(extra.rounded())))
-                if firstTime { publish(cue: .offLoop); cues.play(.offLoop); return }
+                if firstTime {
+                    publish(cue: .offLoop)
+                    cues.play(.offLoop, say: "You have left your loop. Finding a new way.")
+                    replan()
+                    return
+                }
+                // Try again every half minute while still off the route, in case the first attempt had no signal.
+                if let last = lastReplanAttempt, Date().timeIntervalSince(last) > 30 { replan() }
             }
         } else {
             offRouteStrikes = 0
@@ -176,6 +189,7 @@ final class WalkSession {
         }
 
         var cue: WatchMessage.Cue?
+        var line: String?
         if let step = nextStep, metresToTurn <= 28, !cuedSteps.contains(stepIndex) {
             cuedSteps.insert(stepIndex)
             switch step.kind {
@@ -183,10 +197,56 @@ final class WalkSession {
             case .right, .slightRight: cue = .right
             default: break
             }
+            line = spokenInstruction(for: step)
         }
         checkLate()
-        if let cue { cues.play(cue) }
+        if let cue { cues.play(cue, say: line) }
         publish(cue: cue)
+    }
+
+    /// "Left onto Mill Lane"
+    private func spokenInstruction(for step: TurnStep) -> String {
+        [step.kind.verb, step.street.map { "onto \($0)" }].compactMap { $0 }.joined(separator: " ")
+    }
+
+    // MARK: Off the loop
+
+    /// Turning points of the current route that are still ahead.
+    private var remainingWaypoints: [Coord] {
+        route.waypoints.filter { wp in Geo.nearest(to: wp, on: route.path).index > progressIndex }
+    }
+
+    /// Seconds over the requested time if the walker follows `candidate` from here.
+    private func overrun(following candidate: PlannedLoop) -> TimeInterval {
+        Date().timeIntervalSince(startDate) + candidate.distance / metresPerSecond - Double(plannedMinutes) * 60
+    }
+
+    /// Plans a new way home from where the walker is. Keeps as many of the loop's turning points
+    /// as still fit the requested time, dropping the nearest first, and goes straight home if none do.
+    private func replan() {
+        guard let start = here, !isRerouting else { return }
+        lastReplanAttempt = .now
+        isRerouting = true
+        let firstStops = isHeadingHome ? [] : remainingWaypoints
+        Task { @MainActor in
+            defer { isRerouting = false }
+            var stops = firstStops
+            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
+            let allowed = Double(plannedMinutes) * 60 * Self.lateShare
+            var chosen: PlannedLoop?
+            while true {
+                if let candidate = try? await planner.build(home: route.home, from: start, through: stops) {
+                    chosen = candidate
+                    if overrun(following: candidate) <= allowed { break }
+                }
+                if stops.isEmpty { break }
+                stops.removeFirst()
+            }
+            // The walker may have found their own way back while this was planning.
+            guard let chosen, offRoute != nil else { return }
+            switchRoute(to: chosen)
+            if let step = nextStep { cues.say("New route. \(spokenInstruction(for: step))") }
+        }
     }
 
     private func advanceStep() {
@@ -197,10 +257,11 @@ final class WalkSession {
 
     // MARK: Running late
 
-    /// Offers a shortcut once the walker is 5 minutes behind, and again for each 5 more.
+    /// Offers a shortcut once the walker would overrun the requested time by more than a tenth,
+    /// and again for each 5 minutes more.
     private func checkLate() {
         let late = minutesLate
-        guard late >= 5, lateOffer == nil, !isHeadingHome, offRoute == nil, !isFindingShortcut else { return }
+        guard Double(late) > Double(plannedMinutes) * Self.lateShare, walkedDistance > 300, lateOffer == nil, !isHeadingHome, offRoute == nil, !isFindingShortcut else { return }
         if let dismissed = lateDismissedAt, late < dismissed + 5 { return }
         guard let here else { return }
         isFindingShortcut = true
@@ -215,7 +276,7 @@ final class WalkSession {
                 shortcut: shortcut,
                 summary: via.map { "Going back along \($0) gets you home on time." } ?? "A shorter way home gets you back on time."
             )
-            cues.play(.late)
+            cues.play(.late, say: "You are running about \(late) minutes late. A shortcut home is ready.")
             publish(cue: .late)
         }
     }
@@ -270,9 +331,6 @@ final class WalkSession {
         guard let here else { return }
         isRerouting = true
         defer { isRerouting = false }
-        let remainingWaypoints = route.waypoints.filter { wp in
-            Geo.nearest(to: wp, on: route.path).index > progressIndex
-        }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
         if let rerouted = try? await planner.build(home: route.home, from: here, through: remainingWaypoints) {
             switchRoute(to: rerouted)
@@ -309,7 +367,8 @@ final class WalkSession {
         let before = library.coverageFraction
         let record = WalkRecord(date: startDate, duration: Date().timeIntervalSince(startDate), distance: distance,
                                 path: path, newStreets: newStreets,
-                                newFraction: distance > 0 ? min(1, newDistance / distance) : 0)
+                                newFraction: distance > 0 ? min(1, newDistance / distance) : 0,
+                                plannedMinutes: plannedMinutes)
         library.record(record)
         return WalkSummary(record: record, newSegments: newSegments.map(\.path),
                            coverageBefore: before, coverageAfter: library.coverageFraction)
@@ -334,7 +393,7 @@ final class WalkSession {
         if let offRoute {
             instruction = "Back to \(offRoute.street)"
         } else if let step = nextStep {
-            instruction = [step.kind.verb, step.street.map { "onto \($0)" }].compactMap { $0 }.joined(separator: " ")
+            instruction = spokenInstruction(for: step)
         } else {
             instruction = "Home"
         }

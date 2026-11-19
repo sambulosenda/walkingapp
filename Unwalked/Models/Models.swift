@@ -166,6 +166,11 @@ struct StreetReport: Codable, Hashable {
     var date: Date = .now
 }
 
+/// The walker's verdict on a finished loop.
+enum LoopRating: String, Codable {
+    case good, bad
+}
+
 struct WalkRecord: Codable, Identifiable, Hashable {
     var id = UUID()
     var date: Date
@@ -174,6 +179,9 @@ struct WalkRecord: Codable, Identifiable, Hashable {
     var path: [Coord]
     var newStreets: Int
     var newFraction: Double
+    /// Minutes the walker asked for, to check loops fit the time.
+    var plannedMinutes: Int?
+    var rating: LoopRating?
 }
 
 /// What the Walk complete screen shows.

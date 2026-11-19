@@ -72,6 +72,12 @@ final class WalkLibrary {
         save()
     }
 
+    func rate(_ walkID: WalkRecord.ID, _ rating: LoopRating?) {
+        guard let i = data.walks.firstIndex(where: { $0.id == walkID }) else { return }
+        data.walks[i].rating = rating
+        save()
+    }
+
     /// Learned walking speed in km/h, from the last five walks of ten minutes or more.
     /// Falls back to the pace picked in onboarding.
     var speedKmh: Double {
