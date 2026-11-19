@@ -89,6 +89,9 @@ final class WalkSession {
         return Int((projected.timeIntervalSince(plannedEnd) / 60).rounded())
     }
 
+    /// True once the walker is at their door, or as good as.
+    var hasArrived: Bool { progress >= 0.995 || (walkedDistance > 50 && remainingDistance < 12) }
+
     var progress: Double {
         guard route.distance > 0 else { return 0 }
         return min(1, max(0, 1 - remainingDistance / route.distance))
@@ -155,7 +158,7 @@ final class WalkSession {
         lastFixDate = .now
 
         // Look ahead along the route only, so a loop that ends at its start doesn't jump to the finish.
-        let window = Array(route.path.prefix(min(route.path.count, progressIndex + 200)))
+        let window = Array(route.path.prefix(lookaheadEnd))
         let near = Geo.nearest(to: point, on: window, from: max(0, progressIndex - 3))
 
         if near.distance > Self.offRouteMetres {
@@ -221,33 +224,51 @@ final class WalkSession {
         Date().timeIntervalSince(startDate) + candidate.distance / metresPerSecond - Double(plannedMinutes) * 60
     }
 
-    /// Plans a new way home from where the walker is. Keeps as many of the loop's turning points
-    /// as still fit the requested time, dropping the nearest first, and goes straight home if none do.
+    /// A way home from `start` that keeps as many of the loop's turning points as still fit the
+    /// requested time, dropping the nearest first, and goes straight home if none do.
+    @MainActor
+    private func routeHome(from start: Coord, through waypoints: [Coord]) async -> PlannedLoop? {
+        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                  metresPerSecond: metresPerSecond, streets: library.streets)
+        let allowed = Double(plannedMinutes) * 60 * Self.lateShare
+        var stops = waypoints
+        var chosen: PlannedLoop?
+        while true {
+            if let candidate = try? await planner.build(home: route.home, from: start, through: stops) {
+                chosen = candidate
+                if overrun(following: candidate) <= allowed { break }
+            }
+            if stops.isEmpty { break }
+            stops.removeFirst()
+        }
+        return chosen
+    }
+
+    /// Plans a new way home from where the walker is, after they have left the loop.
     private func replan() {
         guard let start = here, !isRerouting else { return }
         lastReplanAttempt = .now
         isRerouting = true
-        let firstStops = isHeadingHome ? [] : remainingWaypoints
+        let stops = isHeadingHome ? [] : remainingWaypoints
         Task { @MainActor in
             defer { isRerouting = false }
-            var stops = firstStops
-            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets)
-            let allowed = Double(plannedMinutes) * 60 * Self.lateShare
-            var chosen: PlannedLoop?
-            while true {
-                if let candidate = try? await planner.build(home: route.home, from: start, through: stops) {
-                    chosen = candidate
-                    if overrun(following: candidate) <= allowed { break }
-                }
-                if stops.isEmpty { break }
-                stops.removeFirst()
-            }
             // The walker may have found their own way back while this was planning.
-            guard let chosen, offRoute != nil else { return }
+            guard let chosen = await routeHome(from: start, through: stops), offRoute != nil else { return }
             switchRoute(to: chosen)
             if let step = nextStep { cues.say("New route. \(spokenInstruction(for: step))") }
         }
+    }
+
+    /// How many points of the route to search for the walker's position: about 200 m past where they
+    /// were last seen. Measured in metres, not points, because street data can put points far apart.
+    private var lookaheadEnd: Int {
+        var i = progressIndex
+        var ahead: CLLocationDistance = 0
+        while i < route.path.count - 1, ahead < 200 || i < progressIndex + 2 {
+            ahead += route.path[i].distance(to: route.path[i + 1])
+            i += 1
+        }
+        return min(route.path.count, i + 1)
     }
 
     private func advanceStep() {
@@ -327,16 +348,15 @@ final class WalkSession {
         return out
     }
 
-    /// Saves the report and plans round it to the remaining turning points.
+    /// Saves the report and plans round it, still aiming to be home on time.
+    @MainActor
     func report(_ reason: ReportReason) async {
         let stretch = stretchAhead
         library.report(StreetReport(path: stretch, reason: reason))
         guard let here else { return }
         isRerouting = true
         defer { isRerouting = false }
-        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets)
-        if let rerouted = try? await planner.build(home: route.home, from: here, through: remainingWaypoints) {
+        if let rerouted = await routeHome(from: here, through: isHeadingHome ? [] : remainingWaypoints) {
             switchRoute(to: rerouted)
         }
     }

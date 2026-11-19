@@ -63,8 +63,8 @@ struct WalkingScreen: View {
         } message: {
             Text("The streets you have walked so far still count.")
         }
-        .onChange(of: session.progress) { _, p in
-            if p >= 0.995 { model.endWalk() }
+        .onChange(of: session.hasArrived) { _, arrived in
+            if arrived { model.endWalk() }
         }
         .onChange(of: reporting) { _, isReporting in
             if isReporting {
