@@ -1,0 +1,99 @@
+import MapKit
+import SwiftUI
+
+struct PaywallScreen: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+    @State private var plan: Purchases.Plan = .yearly
+    @State private var position: MapCameraPosition = .automatic
+
+    private var purchases: Purchases { model.purchases }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            UnwalkedMap(layers: MapLayers(walked: model.library.walks.map(\.path), home: model.home),
+                        position: $position, interactive: false)
+
+            VStack {
+                HStack {
+                    Spacer()
+                    GlassIconButton(systemName: "xmark", label: "Close") { dismiss() }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                Spacer()
+            }
+
+            BottomSheet(bottomPadding: 22) {
+                SheetTitle(text: "You have walked both free loops this week").padding(.top, 16)
+                BodyText(text: "Unwalked Plus gives you a fresh loop whenever you want one. Recording and your map stay free, and your next free loop arrives on Monday.")
+                    .padding(.top, 8)
+
+                VStack(spacing: 8) {
+                    ForEach(Purchases.Plan.allCases) { p in
+                        ChoiceRow(isSelected: plan == p, height: 68, action: { plan = p }) {
+                            TitleSubtitle(title: p.label, subtitle: purchases.detail(p))
+                        } trailing: {
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(purchases.monthlyPrice(p)).font(.rounded(22)).foregroundStyle(Theme.text)
+                                Text("a month").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 16)
+
+                Button {
+                    Task {
+                        await purchases.purchase(plan)
+                        if purchases.hasPlus { dismiss() }
+                    }
+                } label: {
+                    if purchases.isPurchasing { ProgressView().tint(Theme.onPrimary) } else { Text(purchases.cta(plan)) }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(purchases.isPurchasing)
+                .padding(.top, 16)
+
+                Text(purchases.terms(plan))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.muted)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 10)
+
+                HStack(spacing: 4) {
+                    Button("Restore purchases") {
+                        Task {
+                            await purchases.restore()
+                            if purchases.hasPlus { dismiss() }
+                        }
+                    }
+                    Button("Terms") { openURL(Links.terms) }
+                    Button("Privacy") { openURL(Links.privacy) }
+                }
+                .buttonStyle(TextButtonStyle(size: 13))
+                .padding(.horizontal, 10)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .onAppear {
+            if let home = model.home { position = .home(home, radius: 900, sheetFraction: 0.55) }
+        }
+        .alert("Unwalked Plus", isPresented: Binding(
+            get: { purchases.errorMessage != nil },
+            set: { if !$0 { purchases.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(purchases.errorMessage ?? "")
+        }
+    }
+}
+
+enum Links {
+    // TODO: point these at the real pages before release.
+    static let terms = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+    static let privacy = URL(string: "https://example.com/unwalked/privacy")!
+}
