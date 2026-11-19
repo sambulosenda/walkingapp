@@ -1,14 +1,27 @@
 import CoreLocation
 import MapKit
 
-/// Plans walking loops from the door with Apple's walking directions.
+/// Plans walking loops from the door.
 ///
-/// Each loop is home → A → B → home, with A and B placed so the triangle's length
-/// roughly matches the time the walker has, then scaled once to tighten the fit.
+/// With street data on the phone, loops are planned on the street graph (see `StreetRouter`).
+/// Without it, for example on a first run with no signal, it falls back to Apple's walking directions:
+/// home → A → B → home, with A and B placed so the triangle's length roughly matches the time
+/// the walker has, then scaled to tighten the fit.
 struct LoopPlanner {
     var coverage: Coverage
     var reports: [StreetReport]
     var metresPerSecond: Double
+    /// The streets around home, when they have been downloaded.
+    var streets: StreetGraph?
+
+    /// Runs street-graph work off the main thread.
+    private func onStreets<T: Sendable>(_ work: @escaping @Sendable (StreetRouter) -> T) async -> T? {
+        guard let streets else { return nil }
+        let coverage = coverage, reports = reports, speed = metresPerSecond
+        return await Task.detached(priority: .userInitiated) {
+            work(StreetRouter(graph: streets, coverage: coverage, reports: reports, metresPerSecond: speed))
+        }.value
+    }
 
     enum PlanError: LocalizedError {
         case noRoutes
@@ -23,6 +36,9 @@ struct LoopPlanner {
     private static let fitPasses = 3
 
     func loops(from home: Coord, minutes: Int, rotation: Double = 0) async throws -> [PlannedLoop] {
+        if let planned = await onStreets({ $0.loops(from: home, minutes: minutes, rotation: rotation) }), !planned.isEmpty {
+            return planned
+        }
         let target = Double(minutes) * 60 * metresPerSecond
         let bearings = [90.0, 0, 270].map { ($0 + rotation).truncatingRemainder(dividingBy: 360) }
 
@@ -59,6 +75,10 @@ struct LoopPlanner {
 
     /// Routes from `start` through `waypoints` and back to `home`.
     func build(home: Coord, from start: Coord? = nil, through waypoints: [Coord], bearing: Double? = nil) async throws -> PlannedLoop? {
+        if let planned = await onStreets({ $0.route(home: home, from: start, through: waypoints, bearing: bearing)?.loop }),
+           let loop = planned {
+            return loop
+        }
         let stops = [start ?? home] + waypoints + [home]
         var path: [Coord] = []
         var steps: [TurnStep] = []

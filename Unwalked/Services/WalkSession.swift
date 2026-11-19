@@ -231,7 +231,8 @@ final class WalkSession {
         Task { @MainActor in
             defer { isRerouting = false }
             var stops = firstStops
-            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
+            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                      metresPerSecond: metresPerSecond, streets: library.streets)
             let allowed = Double(plannedMinutes) * 60 * Self.lateShare
             var chosen: PlannedLoop?
             while true {
@@ -267,7 +268,8 @@ final class WalkSession {
         isFindingShortcut = true
         Task { @MainActor in
             defer { isFindingShortcut = false }
-            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
+            let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                      metresPerSecond: metresPerSecond, streets: library.streets)
             guard let shortcut = try? await planner.shortcutHome(from: here, home: route.home),
                   shortcut.distance < remainingDistance * 0.85 else { return }
             let via = shortcut.segments.compactMap(\.street).first
@@ -298,7 +300,8 @@ final class WalkSession {
         guard let here, !isHeadingHome else { return }
         isRerouting = true
         defer { isRerouting = false }
-        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
+        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                      metresPerSecond: metresPerSecond, streets: library.streets)
         if let shortcut = try? await planner.shortcutHome(from: here, home: route.home) {
             switchRoute(to: shortcut)
             isHeadingHome = true
@@ -331,7 +334,8 @@ final class WalkSession {
         guard let here else { return }
         isRerouting = true
         defer { isRerouting = false }
-        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports, metresPerSecond: metresPerSecond)
+        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                      metresPerSecond: metresPerSecond, streets: library.streets)
         if let rerouted = try? await planner.build(home: route.home, from: here, through: remainingWaypoints) {
             switchRoute(to: rerouted)
         }

@@ -65,6 +65,14 @@ struct LoopOptionsScreen: View {
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(selected == nil || model.isPlanning)
                     .padding(.top, 16)
+
+                if model.library.streets != nil {
+                    Text("Street data © OpenStreetMap contributors")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.muted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 8)
+                }
             }
         }
         .onChange(of: model.selectedLoopID) { _, _ in frame() }

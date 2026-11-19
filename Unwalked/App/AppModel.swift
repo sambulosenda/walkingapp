@@ -16,6 +16,7 @@ final class AppModel {
     let location: LocationService
     let purchases: Purchases
     let watch = WatchBridge()
+    let streets = StreetStore()
 
     var screen: Screen
     var onboardingStep = 1
@@ -43,6 +44,20 @@ final class AppModel {
         self.location = location
         self.purchases = purchases
         screen = library.onboarded && library.homeArea != nil ? .home : .onboarding
+        Task { await loadStreets() }
+    }
+
+    // MARK: Streets
+
+    /// Fetches the streets needed for a loop of the chosen length, or reads them from the phone.
+    @MainActor
+    @discardableResult
+    func loadStreets(patience: StreetStore.Patience = .patient) async -> StreetGraph? {
+        guard let area = library.homeArea else { return nil }
+        let reach = StreetStore.reach(minutes: minutes, metresPerSecond: library.metresPerSecond)
+        let graph = await streets.graph(around: area.center, radius: max(reach, area.radius), patience: patience)
+        if let graph, library.streets !== graph { library.streets = graph }
+        return graph
     }
 
     // MARK: Derived
@@ -67,6 +82,7 @@ final class AppModel {
         library.setHomeArea(area)
         library.finishOnboarding()
         screen = .home
+        Task { await loadStreets() }
     }
 
     // MARK: Time
@@ -95,8 +111,13 @@ final class AppModel {
         isPlanning = true
         planError = nil
         defer { isPlanning = false }
+        // Loops start from the home area's centre, so the same streets serve every plan.
+        // If the streets are not on the phone within a few seconds, plan this one with Apple's directions
+        // and keep downloading for next time.
+        let graph = library.homeArea?.center == home ? await loadStreets(patience: .brief) : nil
+        if graph == nil { Task { await loadStreets() } }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                  metresPerSecond: library.metresPerSecond)
+                                  metresPerSecond: library.metresPerSecond, streets: graph)
         do {
             loops = try await planner.loops(from: home, minutes: minutes, rotation: rotation)
             selectedLoopID = loops.first?.id
