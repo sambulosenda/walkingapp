@@ -1,0 +1,75 @@
+name: Unwalked
+options:
+  bundleIdPrefix: com.unwalked
+  deploymentTarget:
+    iOS: "17.0"
+    watchOS: "10.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  Unwalked:
+    type: application
+    platform: iOS
+    sources:
+      - Unwalked
+      - Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.unwalked.app
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    info:
+      path: Unwalked/Info.plist
+      properties:
+        CFBundleDisplayName: Unwalked
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        NSLocationWhenInUseUsageDescription: Unwalked uses your location while you walk, to guide you and fill in your map. Your walks stay on this phone.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Unwalked keeps guiding you with the phone in your pocket. Your walks stay on this phone.
+        UIBackgroundModes: [location]
+        NSSupportsLiveActivities: true
+    dependencies:
+      - target: UnwalkedWidgets
+      - target: UnwalkedWatch
+      - sdk: StoreKit.framework
+
+  UnwalkedWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - UnwalkedWidgets
+      - path: Shared/WalkActivityAttributes.swift
+      - path: Unwalked/Design/Palette.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.unwalked.app.widgets
+    info:
+      path: UnwalkedWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Unwalked
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+
+  UnwalkedWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - UnwalkedWatch
+      - path: Shared/WatchMessage.swift
+      - path: Unwalked/Design/Palette.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.unwalked.app.watchkitapp
+    info:
+      path: UnwalkedWatch/Info.plist
+      properties:
+        CFBundleDisplayName: Unwalked
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.unwalked.app
