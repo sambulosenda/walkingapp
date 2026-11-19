@@ -178,7 +178,11 @@ struct StreetRouter: Sendable {
         for (a, b) in zip(stops, stops.dropFirst()) {
             guard let leg = graph.shortest(from: a, to: b, cost: { cost($0, used: used) }) else { return nil }
             hops += leg
-            for hop in leg { used.insert(hop.segment) }
+            for hop in leg {
+                used.insert(hop.segment)
+                // The other pavement of the same road counts as used too.
+                used.formUnion(graph.twins[hop.segment])
+            }
         }
         guard !hops.isEmpty else { return nil }
 
@@ -199,7 +203,9 @@ struct StreetRouter: Sendable {
             }
             path.append(contentsOf: path.last == oriented[0] ? Array(oriented.dropFirst()) : oriented)
 
-            let again = !seen.insert(hop.segment).inserted
+            let again = seen.contains(hop.segment)
+            seen.insert(hop.segment)
+            seen.formUnion(graph.twins[hop.segment])
             if again {
                 run += s.length
                 repeated += s.length

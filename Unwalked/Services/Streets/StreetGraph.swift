@@ -38,6 +38,9 @@ final class StreetGraph: @unchecked Sendable {
     let nodes: [Coord]
     let segments: [StreetSegment]
     let links: [[Link]]
+    /// For each segment, the segments that run alongside it: the two pavements of one road, or a road
+    /// and the path beside it. Walking out on one and back on the other is doubling back.
+    let twins: [[Int]]
     /// Junctions in the largest connected piece, keyed by grid cell, for finding the nearest one.
     private let grid: [Int64: [Int]]
 
@@ -163,6 +166,8 @@ final class StreetGraph: @unchecked Sendable {
             }
         }
 
+        self.twins = Self.twins(of: segments, around: center)
+
         var links = [[Link]](repeating: [], count: nodes.count)
         for (i, s) in segments.enumerated() {
             links[s.from].append(Link(node: s.to, segment: i, forward: true))
@@ -197,6 +202,61 @@ final class StreetGraph: @unchecked Sendable {
         self.segments = segments
         self.links = links
         self.grid = grid
+    }
+
+    /// Pairs up segments that run side by side within 30 m, pointing the same or opposite way.
+    private static func twins(of segments: [StreetSegment], around center: Coord) -> [[Int]] {
+        let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+        let reach = 30.0, cell = 30.0
+        func bucket(_ x: Double, _ y: Double) -> Int64 {
+            key(x: Int64((x / cell).rounded(.down)), y: Int64((y / cell).rounded(.down)))
+        }
+        // A point every 15 m along each segment long enough to be a stretch of street, not a crossing.
+        var samples = [[(x: Double, y: Double)]](repeating: [], count: segments.count)
+        var heading = [Double](repeating: 0, count: segments.count)
+        var grid: [Int64: [(x: Double, y: Double, segment: Int)]] = [:]
+        for (i, s) in segments.enumerated() where s.length >= 25 {
+            let flat = s.path.map { (x: ($0.lon - center.lon) * perLon, y: ($0.lat - center.lat) * perLat) }
+            heading[i] = atan2(flat[flat.count - 1].y - flat[0].y, flat[flat.count - 1].x - flat[0].x)
+            var along = 0.0, next = 0.0
+            for (p, q) in zip(flat, flat.dropFirst()) {
+                let length = ((q.x - p.x) * (q.x - p.x) + (q.y - p.y) * (q.y - p.y)).squareRoot()
+                while next <= along + length, length > 0 {
+                    let t = (next - along) / length
+                    let point = (x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t)
+                    samples[i].append(point)
+                    grid[bucket(point.x, point.y), default: []].append((point.x, point.y, i))
+                    next += 15
+                }
+                along += length
+            }
+        }
+        var twins = [[Int]](repeating: [], count: segments.count)
+        for i in segments.indices where !samples[i].isEmpty {
+            var hits: [Int: Int] = [:]
+            for p in samples[i] {
+                var seen = Set<Int>()
+                for dx in [-cell, 0, cell] {
+                    for dy in [-cell, 0, cell] {
+                        for other in grid[bucket(p.x + dx, p.y + dy)] ?? [] where other.segment != i && !seen.contains(other.segment) {
+                            let ex = p.x - other.x, ey = p.y - other.y
+                            if ex * ex + ey * ey <= reach * reach { seen.insert(other.segment) }
+                        }
+                    }
+                }
+                for s in seen { hits[s, default: 0] += 1 }
+            }
+            for (other, count) in hits where Double(count) >= Double(samples[i].count) * 0.6 {
+                // Side by side means parallel: within 25 degrees, either direction.
+                var turn = abs(heading[i] - heading[other]).truncatingRemainder(dividingBy: .pi)
+                if turn > .pi / 2 { turn = .pi - turn }
+                // Segments that join end to end are the same street carrying on, not a twin.
+                let joined = segments[i].from == segments[other].from || segments[i].from == segments[other].to
+                    || segments[i].to == segments[other].from || segments[i].to == segments[other].to
+                if turn < 25 * .pi / 180, !joined { twins[i].append(other) }
+            }
+        }
+        return twins
     }
 
     // MARK: Lookups
