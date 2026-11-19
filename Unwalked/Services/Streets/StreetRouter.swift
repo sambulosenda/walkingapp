@@ -197,13 +197,20 @@ struct StreetRouter: Sendable {
         var seen = Set<Int>()
         var spur = 0.0, run = 0.0, repeated = 0.0, main = 0.0, total = 0.0
         var previous: [Coord]?
+        var previousSegment: Int?
+        var sharpTurns = 0
         for hop in hops {
             let s = graph.segments[hop.segment]
             let oriented = hop.forward ? s.path : Array(s.path.reversed())
             let junction = hop.forward ? s.from : s.to
-            if let previous, let kind = Self.turn(from: previous, to: oriented, streets: graph.links[junction].count) {
+            // Turning round means walking back along the same stretch. A hairpin bend on a path is not that.
+            let kind: TurnKind? = previousSegment == hop.segment ? .uTurn
+                : previous.flatMap { Self.turn(from: $0, to: oriented, streets: graph.links[junction].count) }
+            if let previous, Self.isSharp(from: previous, to: oriented) { sharpTurns += 1 }
+            if let kind {
                 steps.append(TurnStep(kind: kind, street: s.name, at: oriented[0], pathIndex: max(0, path.count - 1)))
             }
+            previousSegment = hop.segment
             path.append(contentsOf: path.last == oriented[0] ? Array(oriented.dropFirst()) : oriented)
 
             let again = seen.contains(hop.segment)
@@ -234,7 +241,7 @@ struct StreetRouter: Sendable {
         return Candidate(loop: loop, used: used, spur: spur,
                          repeatShare: total > 0 ? repeated / total : 0, mainShare: total > 0 ? main / total : 0,
                          bearing: bearing, doubledShare: Self.doubledShare(of: path, home: home),
-                         reversals: steps.filter { $0.kind == .uTurn }.count)
+                         reversals: steps.filter { $0.kind == .uTurn }.count + sharpTurns)
     }
 
     /// Share of a path that runs within 60 m of a part of itself more than 250 m further along:
@@ -284,7 +291,6 @@ struct StreetRouter: Sendable {
         if angle > 180 { angle -= 360 }
         if angle < -180 { angle += 360 }
         let size = abs(angle)
-        if size >= 150 { return .uTurn }
         guard streets >= 3, size >= 30 else { return nil }
         if size < 55 { return angle < 0 ? .slightLeft : .slightRight }
         return angle < 0 ? .left : .right
@@ -310,6 +316,16 @@ struct StreetRouter: Sendable {
             out.append(step)
         }
         return out
+    }
+
+    /// True when the walker all but reverses direction between two stretches.
+    static func isSharp(from previous: [Coord], to next: [Coord]) -> Bool {
+        guard previous.count > 1, next.count > 1 else { return false }
+        let incoming = bearing(from: point(along: Array(previous.reversed()), after: 15), to: previous[previous.count - 1])
+        let outgoing = bearing(from: next[0], to: point(along: next, after: 15))
+        var angle = abs(outgoing - incoming).truncatingRemainder(dividingBy: 360)
+        if angle > 180 { angle = 360 - angle }
+        return angle >= 150
     }
 
     /// The first point at least `distance` metres along a path.

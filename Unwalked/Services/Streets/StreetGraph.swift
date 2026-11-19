@@ -417,6 +417,33 @@ final class StreetGraph: @unchecked Sendable {
         segments.map { coverage.walkedFraction(of: $0.path) >= Self.walkedShare }
     }
 
+    /// The stretches of street a walk covered that had not been walked before.
+    func newlyWalked(by trail: [Coord], before: Coverage) -> [LoopSegment] {
+        guard let first = trail.first else { return [] }
+        var today = Coverage()
+        today.mark(trail)
+        // Only streets inside the box the walk fits in can have been covered.
+        var minLat = first.lat, maxLat = first.lat, minLon = first.lon, maxLon = first.lon
+        for c in trail {
+            minLat = min(minLat, c.lat); maxLat = max(maxLat, c.lat)
+            minLon = min(minLon, c.lon); maxLon = max(maxLon, c.lon)
+        }
+        let margin = 0.0005
+        var out: [LoopSegment] = []
+        // The far pavement of a street just counted is the same street, not another new one.
+        var counted = Set<Int>()
+        for (i, s) in segments.enumerated() where !twins[i].contains(where: counted.contains) {
+            let middle = s.path[s.path.count / 2]
+            guard middle.lat > minLat - margin, middle.lat < maxLat + margin,
+                  middle.lon > minLon - margin, middle.lon < maxLon + margin else { continue }
+            if today.walkedFraction(of: s.path) >= Self.walkedShare, before.walkedFraction(of: s.path) < Self.walkedShare {
+                out.append(LoopSegment(path: s.path, street: s.name, isNew: true, length: s.length))
+                counted.insert(i)
+            }
+        }
+        return out
+    }
+
     /// Which segments run along a reported stretch. A street that only crosses one is left alone.
     func blocked(by reports: [StreetReport]) -> [Bool] {
         var out = [Bool](repeating: false, count: segments.count)
