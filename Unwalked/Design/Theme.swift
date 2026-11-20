@@ -4,7 +4,9 @@ import UIKit
 /// Adaptive tokens. Light values are the v2 day screens, dark values the "After dark" screen.
 enum Theme {
     static let text = adaptive(light: 0x14262B, dark: 0xF2F5F6)
-    static let muted = adaptive(light: 0x56666A, dark: 0x9FB0B5)
+    static let muted = adaptive(light: 0x56666A, dark: 0x9FB0B5, lightContrast: 0x3A484C, darkContrast: 0xC6D2D5)
+    /// "New to you" streets. Darker with Increase Contrast on, so the line stands out from a pale map.
+    static let fresh = adaptive(light: 0xF26A1B, dark: 0xF26A1B, lightContrast: 0xB84A08, darkContrast: 0xFF8A45)
     static let ground = adaptive(light: 0xF1F2EE, dark: 0x0E1517)
     static let sheet = adaptive(light: 0xFFFFFF, dark: 0x151E21)
     static let chip = adaptive(light: 0xEEF0EC, dark: 0x223035)
@@ -18,8 +20,8 @@ enum Theme {
     static let onPrimary = adaptive(light: 0xFFFFFF, dark: 0x14262B)
     static let glass = Color(UIColor { trait in
         trait.userInterfaceStyle == .dark
-            ? UIColor(red: 21 / 255, green: 30 / 255, blue: 33 / 255, alpha: 0.74)
-            : UIColor(white: 1, alpha: 0.78)
+            ? UIColor(red: 21 / 255, green: 30 / 255, blue: 33 / 255, alpha: 0.86)
+            : UIColor(white: 1, alpha: 0.88)
     })
     static let controlTint = Color(UIColor { trait in
         trait.userInterfaceStyle == .dark
@@ -32,9 +34,12 @@ enum Theme {
     static let sheetRadius: CGFloat = 32
     static let rowRadius: CGFloat = 20
 
-    private static func adaptive(light: UInt32, dark: UInt32) -> Color {
+    /// The `Contrast` values are used when Increase Contrast is on in Accessibility settings.
+    private static func adaptive(light: UInt32, dark: UInt32, lightContrast: UInt32? = nil, darkContrast: UInt32? = nil) -> Color {
         Color(UIColor { trait in
-            UIColor(Color(hex: trait.userInterfaceStyle == .dark ? dark : light))
+            let high = trait.accessibilityContrast == .high
+            let isDark = trait.userInterfaceStyle == .dark
+            return UIColor(Color(hex: isDark ? (high ? darkContrast ?? dark : dark) : (high ? lightContrast ?? light : light)))
         })
     }
 }

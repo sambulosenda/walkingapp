@@ -66,19 +66,73 @@ final class StreetGraph: @unchecked Sendable {
         var elements: [Element]
     }
 
-    init?(overpass data: Data, center: Coord, radius: CLLocationDistance) {
+    /// One square of street data from Unwalked's own server: see `server/src/tiles.js`.
+    private struct Tile: Decodable {
+        struct Way: Decodable {
+            var id: Int64
+            /// Positions in `ids`, `lat` and `lon`.
+            var nodes: [Int]
+            var tags: [String: String]
+        }
+        var ids: [Int64]
+        var lat: [Double]
+        var lon: [Double]
+        var ways: [Way]
+    }
+
+    /// A street as OpenStreetMap has it, before it is cut into segments.
+    private struct RawWay {
+        var nodes: [Int64]
+        var tags: [String: String]
+    }
+
+    /// Streets from one Overpass answer.
+    convenience init?(overpass data: Data, center: Coord, radius: CLLocationDistance) {
         guard let decoded = try? JSONDecoder().decode(Overpass.self, from: data) else { return nil }
         var coords: [Int64: Coord] = [:]
-        var ways: [(nodes: [Int64], name: String?, rule: WayRule)] = []
-        // Big roads, walkable or not, kept to find the paths that run beside them.
-        var bigRoads: [(nodes: [Int64], reach: Double, factor: Double)] = []
+        var ways: [RawWay] = []
         for element in decoded.elements {
             if element.type == "node", let lat = element.lat, let lon = element.lon {
                 coords[element.id] = Coord(lat: lat, lon: lon)
-            } else if element.type == "way", let ids = element.nodes, ids.count > 1, let tags = element.tags {
-                if let big = WayRule.bigRoad(tags: tags) { bigRoads.append((ids, big.reach, big.factor)) }
-                if let rule = WayRule(tags: tags) { ways.append((ids, tags["name"] ?? tags["ref"], rule)) }
+            } else if element.type == "way", let ids = element.nodes, let tags = element.tags {
+                ways.append(RawWay(nodes: ids, tags: tags))
             }
+        }
+        self.init(coords: coords, ways: ways, center: center, radius: radius)
+    }
+
+    /// Streets from the tiles that cover the circle. A street that crosses tiles is in each of them, and is used once.
+    convenience init?(tiles: [Data], center: Coord, radius: CLLocationDistance) {
+        var coords: [Int64: Coord] = [:]
+        var ways: [RawWay] = []
+        var seen = Set<Int64>()
+        // Tiles are square and the area is round: leave out streets that never come near it.
+        let reach = radius + 200
+        for data in tiles {
+            guard let tile = try? JSONDecoder().decode(Tile.self, from: data),
+                  tile.lat.count == tile.ids.count, tile.lon.count == tile.ids.count else { return nil }
+            let perLat = 111_320.0, perLon = 111_320.0 * cos(center.lat * .pi / 180)
+            let near = tile.ids.indices.map { i in
+                let x = (tile.lon[i] - center.lon) * perLon, y = (tile.lat[i] - center.lat) * perLat
+                return x * x + y * y <= reach * reach
+            }
+            for way in tile.ways where !seen.contains(way.id) {
+                guard way.nodes.allSatisfy(tile.ids.indices.contains), way.nodes.contains(where: { near[$0] }) else { continue }
+                seen.insert(way.id)
+                for i in way.nodes { coords[tile.ids[i]] = Coord(lat: tile.lat[i], lon: tile.lon[i]) }
+                ways.append(RawWay(nodes: way.nodes.map { tile.ids[$0] }, tags: way.tags))
+            }
+        }
+        self.init(coords: coords, ways: ways, center: center, radius: radius)
+    }
+
+    private init?(coords: [Int64: Coord], ways raw: [RawWay], center: Coord, radius: CLLocationDistance) {
+        var ways: [(nodes: [Int64], name: String?, rule: WayRule)] = []
+        // Big roads, walkable or not, kept to find the paths that run beside them.
+        var bigRoads: [(nodes: [Int64], reach: Double, factor: Double)] = []
+        for way in raw where way.nodes.count > 1 {
+            if let big = WayRule.bigRoad(tags: way.tags) { bigRoads.append((way.nodes, big.reach, big.factor)) }
+            if let rule = WayRule(tags: way.tags) { ways.append((way.nodes, way.tags["name"] ?? way.tags["ref"], rule)) }
         }
 
         // A node is a junction when more than one way uses it, or a way starts or ends there.

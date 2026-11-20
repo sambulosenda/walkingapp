@@ -71,7 +71,7 @@ struct PaceStep: View {
                 }
                 .padding(.top, 16)
                 Text("Unwalked learns your real pace from your first few walks.")
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(Theme.muted)
                     .padding(.top, 12)
                 Button("Continue") {

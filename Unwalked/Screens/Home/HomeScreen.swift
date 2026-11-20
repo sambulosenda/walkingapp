@@ -40,12 +40,12 @@ struct HomeScreen: View {
                     } icon: {
                         Image(systemName: "moon").font(.system(size: 14, weight: .semibold))
                     }
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(Theme.muted)
                     .padding(.top, 10)
                 } else if !firstRun {
                     Text("About \(model.estimatedKm, specifier: "%.1f") km at your pace")
-                        .font(.system(size: 15))
+                        .font(.subheadline)
                         .foregroundStyle(Theme.muted)
                         .contentTransition(.numericText())
                         .padding(.top, 10)
@@ -74,16 +74,18 @@ struct CoveragePill: View {
     var body: some View {
         HStack(spacing: 8) {
             Text(Format.percent(fraction))
-                .font(.rounded(22))
+                .font(.rounded(.title2))
                 .foregroundStyle(Theme.text)
                 .contentTransition(.numericText())
             Text("of your area walked")
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundStyle(Theme.muted)
         }
         .padding(.horizontal, 16)
-        .frame(height: 44)
+        .padding(.vertical, 6)
+        .frame(minHeight: 44)
         .glass(radius: 22)
+        .floatingChipTextSize()
         .accessibilityElement(children: .combine)
     }
 }
@@ -91,19 +93,20 @@ struct CoveragePill: View {
 /// The big minutes readout with − and + and the tick ruler beneath it.
 struct MinutePicker: View {
     @Environment(AppModel.self) private var model
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("\(model.minutes)")
-                        .font(.rounded(64))
+                        .font(.rounded(min(numeralSize, 96)))
                         .tracking(-1.3)
                         .monospacedDigit()
                         .foregroundStyle(Theme.text)
                         .contentTransition(.numericText(value: Double(model.minutes)))
                     Text("min")
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.title2.weight(.semibold))
                         .foregroundStyle(Theme.muted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

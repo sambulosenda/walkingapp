@@ -420,7 +420,13 @@ final class WalkSession {
     }
 
     private func publish(cue: WatchMessage.Cue?) {
-        activity.update(activityState)
+        // Leaving the loop and running late open the Dynamic Island; ordinary turns update it quietly.
+        var alert: LiveActivityController.Alert?
+        if cue == .offLoop { alert = .init(title: headline, body: detail) }
+        if cue == .late, let offer = lateOffer {
+            alert = .init(title: "About \(offer.minutesLate) min late", body: "A shortcut home is ready.")
+        }
+        activity.update(activityState, alert: alert)
         let instruction: String
         if let offRoute {
             instruction = "Back to \(offRoute.street)"

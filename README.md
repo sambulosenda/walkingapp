@@ -35,12 +35,15 @@ so you can see turn cues, the Live Activity and Walk complete.
 | `UnwalkedWidgets` | Lock Screen Live Activity and Dynamic Island |
 | `UnwalkedWatch` | Watch app: turn screen, between-turns ring, wrist taps |
 | `Shared` | Types used by more than one target |
+| `UnwalkedUITests` | Walks through every main screen running Apple's accessibility audit |
+| `server` | Cloudflare Worker that serves street tiles from an R2 bucket |
 
 ## How it works
 
-- **Streets** come from OpenStreetMap: the walkable ways around your home area are downloaded once (Overpass API),
-  kept on the phone and refreshed monthly. Private ways, driveways and anything closed to walkers are left out;
-  main roads without a pavement cost extra.
+- **Streets** come from OpenStreetMap: the walkable ways around your home area are downloaded once, kept on the
+  phone and refreshed monthly. They arrive as map tiles (zoom 14, about 1.5 km across) from the tile server in
+  `server/`, and from the public Overpass API when no server is set or it has no answer. Private ways, driveways
+  and anything closed to walkers are left out; main roads without a pavement cost extra.
 - **Loops** are planned on the phone, on that street graph: 24 candidate loops in different directions, each resized
   to the time you pick at your pace, scored for new streets, main roads and doubling back. The best three are shown,
   most new first. Until the streets have downloaded, loops fall back to Apple's walking directions.
@@ -54,3 +57,39 @@ so you can see turn cues, the Live Activity and Walk complete.
   Two free loops a week, resetting on Monday.
 - Everything is stored on the phone, in `Application Support/unwalked.json`. Test purchases with `Unwalked.storekit`,
   which the Run scheme already uses.
+
+## Street tile server
+
+The public Overpass servers take 25 to 55 seconds for a neighbourhood and turn automated traffic away when busy,
+so the app should not depend on them. `server/` is a Cloudflare Worker in front of an R2 bucket:
+
+- `GET /v1/14/{x}/{y}.json` returns the streets in one tile, already cut down to the tags the app reads.
+- A tile that is in the bucket is served from it. One that is not is fetched from Overpass once, saved and served,
+  so each square of the map is only ever built one time. One address may trigger 40 builds a minute.
+- `node server/tools/cut.mjs <overpass.json> <out-dir> --inside <lat>,<lon>,<radius>` cuts a saved Overpass answer
+  into tiles, for filling the bucket ahead of launch.
+
+```sh
+cd server
+wrangler dev                              # run it on this Mac, http://localhost:8787
+wrangler r2 bucket create unwalked-streets
+wrangler deploy
+```
+
+Then put the Worker's address in `StreetTilesURL` in `project.yml` and run `xcodegen`. To try a local server from
+the Simulator, launch the app with `-streetTilesURL http://localhost:8787`.
+
+## Accessibility
+
+Text follows the reader's text size setting up to the largest accessibility size; sheets scroll when they outgrow
+the screen and the controls over the map stay reachable. Reduce Motion, Reduce Transparency and Increase Contrast
+are honoured. The audit runs with:
+
+```sh
+xcodebuild test -project Unwalked.xcodeproj -scheme Unwalked -destination 'platform=iOS Simulator,name=iPhone 18 Pro'
+# the same walk-through at the largest text size
+TEST_RUNNER_TEXT_SIZE=AccessibilityXXXL xcodebuild test ...
+```
+
+It needs an onboarded app with a home area, and street data (or a network connection) to plan a loop.
+

@@ -42,7 +42,7 @@ struct UnwalkedMap: View {
 
             if let loop = layers.loop {
                 MapPolyline(coordinates: loop.map(\.cl))
-                    .stroke(Palette.fresh.opacity(0.3), style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
+                    .stroke(Theme.fresh.opacity(0.3), style: StrokeStyle(lineWidth: 15, lineCap: .round, lineJoin: .round))
             }
 
             if let ahead = layers.ahead {
@@ -52,7 +52,7 @@ struct UnwalkedMap: View {
 
             ForEach(Array(layers.fresh.enumerated()), id: \.offset) { _, path in
                 MapPolyline(coordinates: path.map(\.cl))
-                    .stroke(Palette.fresh, style: StrokeStyle(lineWidth: 6.5, lineCap: .round, lineJoin: .round))
+                    .stroke(Theme.fresh, style: StrokeStyle(lineWidth: 6.5, lineCap: .round, lineJoin: .round))
             }
 
             if let shortcut = layers.shortcut {
@@ -83,6 +83,8 @@ struct UnwalkedMap: View {
         .mapStyle(.standard(elevation: .flat, emphasis: .muted, pointsOfInterest: .excludingAll, showsTraffic: false))
         .mapControlVisibility(.hidden)
         .ignoresSafeArea()
+        // VoiceOver reads the sheet and controls first, then the map behind them.
+        .accessibilitySortPriority(-1)
     }
 }
 
@@ -93,7 +95,8 @@ struct HomeMarker: View {
             .frame(width: 18, height: 18)
             .overlay(Circle().strokeBorder(Palette.ink, lineWidth: 3))
             .overlay(Circle().fill(Palette.ink).frame(width: 6, height: 6))
-            .accessibilityLabel("Your home")
+            // A dot on the map, not a control: VoiceOver has nothing to do with it.
+            .accessibilityHidden(true)
     }
 }
 

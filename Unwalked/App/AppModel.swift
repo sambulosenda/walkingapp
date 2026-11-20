@@ -44,6 +44,7 @@ final class AppModel {
         self.location = location
         self.purchases = purchases
         screen = library.onboarded && library.homeArea != nil ? .home : .onboarding
+        LiveActivityController.endLeftovers()
         Task { await loadStreets() }
     }
 
@@ -74,7 +75,13 @@ final class AppModel {
         return SunClock.isDark(lat: c.lat, lon: c.lon)
     }
 
-    var canStartLoop: Bool { purchases.hasPlus || library.freeLoopsLeft > 0 }
+    var canStartLoop: Bool {
+        #if DEBUG
+        // UI tests walk more loops in a week than the free plan allows.
+        if ProcessInfo.processInfo.arguments.contains("-unlimitedLoops") { return true }
+        #endif
+        return purchases.hasPlus || library.freeLoopsLeft > 0
+    }
 
     // MARK: Onboarding
 

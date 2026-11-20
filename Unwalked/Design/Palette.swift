@@ -56,4 +56,9 @@ extension Font {
     static func rounded(_ size: CGFloat, weight: Font.Weight = .bold) -> Font {
         .system(size: size, weight: weight, design: .rounded)
     }
+
+    /// The same numerals at a text style's size, so they grow with the reader's text size setting.
+    static func rounded(_ style: Font.TextStyle, weight: Font.Weight = .bold) -> Font {
+        .system(style, design: .rounded, weight: weight)
+    }
 }

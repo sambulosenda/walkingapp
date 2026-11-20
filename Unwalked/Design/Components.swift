@@ -8,6 +8,22 @@ struct BottomSheet<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
+        // At the largest text sizes a sheet can be taller than the screen, and then it scrolls.
+        ViewThatFits(in: .vertical) {
+            card
+            ScrollView { card }.scrollBounceBehavior(.basedOnSize)
+        }
+        .background(
+            UnevenRoundedRectangle(topLeadingRadius: Theme.sheetRadius, topTrailingRadius: Theme.sheetRadius)
+                .fill(Theme.sheet)
+                .shadow(color: Palette.ink.opacity(0.10), radius: 15, y: -10)
+                .ignoresSafeArea(edges: .bottom)
+        )
+        // However tall the sheet grows, the back button and the other controls above it stay in reach.
+        .padding(.top, 60)
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
             Capsule()
                 .fill(Theme.grabber)
@@ -20,12 +36,6 @@ struct BottomSheet<Content: View>: View {
         .padding(.horizontal, 20)
         .padding(.bottom, bottomPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            UnevenRoundedRectangle(topLeadingRadius: Theme.sheetRadius, topTrailingRadius: Theme.sheetRadius)
-                .fill(Theme.sheet)
-                .shadow(color: Palette.ink.opacity(0.10), radius: 15, y: -10)
-                .ignoresSafeArea(edges: .bottom)
-        )
     }
 }
 
@@ -33,10 +43,11 @@ struct SheetTitle: View {
     let text: String
     var body: some View {
         Text(text)
-            .font(.system(size: 22, weight: .bold))
+            .font(.title2.weight(.bold))
             .tracking(-0.22)
             .foregroundStyle(Theme.text)
             .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -45,19 +56,32 @@ struct StepLabel: View {
     let of: Int
     var body: some View {
         Text("Step \(step) of \(of)")
-            .font(.system(size: 13, weight: .semibold))
+            .font(.footnote.weight(.semibold))
             .foregroundStyle(Theme.muted)
     }
 }
 
 struct BodyText: View {
     let text: String
-    var size: CGFloat = 15
     var body: some View {
         Text(text)
-            .font(.system(size: size))
+            .font(.subheadline)
             .foregroundStyle(Theme.muted)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Side by side when there is room, stacked when the text is too large for that.
+struct AdaptiveStack<Content: View>: View {
+    var alignment: VerticalAlignment = .center
+    var spacing: CGFloat = 8
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: alignment, spacing: spacing) { content }
+            VStack(alignment: .leading, spacing: spacing) { content }
+        }
     }
 }
 
@@ -65,13 +89,16 @@ struct BodyText: View {
 
 struct PrimaryButtonStyle: ButtonStyle {
     var height: CGFloat = 56
-    var fontSize: CGFloat = 17
+    var font: Font = .body
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: fontSize, weight: .semibold))
+            .font(font.weight(.semibold))
             .foregroundStyle(Theme.onPrimary)
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity)
-            .frame(height: height)
+            .frame(minHeight: height)
             .background(Capsule().fill(Theme.primary))
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
@@ -82,20 +109,21 @@ struct PrimaryButtonStyle: ButtonStyle {
 struct SecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 15, weight: .semibold))
+            .font(.subheadline.weight(.semibold))
             .foregroundStyle(Theme.text)
             .padding(.horizontal, 18)
-            .frame(height: 48)
+            .padding(.vertical, 8)
+            .frame(minHeight: 48)
             .background(Capsule().fill(Theme.chip))
             .opacity(configuration.isPressed ? 0.8 : 1)
     }
 }
 
 struct TextButtonStyle: ButtonStyle {
-    var size: CGFloat = 17
+    var font: Font = .body
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: size, weight: .semibold))
+            .font(font.weight(.semibold))
             .foregroundStyle(Theme.text)
             .frame(minHeight: 44)
             .contentShape(Rectangle())
@@ -128,14 +156,16 @@ struct RoundIconButton: View {
 
 /// Frosted floating surface over the map (the design's 78% white with an 18 pt blur).
 struct Glass: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var radius: CGFloat
     func body(content: Content) -> some View {
         content
             .background(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(reduceTransparency ? AnyShapeStyle(Theme.sheet) : AnyShapeStyle(.ultraThinMaterial))
                     .overlay(
-                        RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Theme.glass)
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .fill(reduceTransparency ? Theme.sheet : Theme.glass)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -149,6 +179,12 @@ struct Glass: ViewModifier {
 
 extension View {
     func glass(radius: CGFloat = 22) -> some View { modifier(Glass(radius: radius)) }
+
+    /// For the small chips that float over the top of the map. Like a navigation bar, they stop growing
+    /// before they would cover the map, and show the Large Content Viewer on a long press instead.
+    func floatingChipTextSize() -> some View {
+        dynamicTypeSize(...DynamicTypeSize.xxxLarge).accessibilityShowsLargeContentViewer()
+    }
 }
 
 struct GlassIconButton: View {
@@ -173,6 +209,7 @@ struct GlassIconButton: View {
 
 /// A choice row: idle rows are a soft grey, the picked row turns white with a 2 pt ink ring.
 struct ChoiceRow<Leading: View, Trailing: View>: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let isSelected: Bool
     var height: CGFloat = 64
     var radius: CGFloat = Theme.rowRadius
@@ -182,11 +219,16 @@ struct ChoiceRow<Leading: View, Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
+            // At the largest text sizes there is no room side by side, so the two parts stack.
+            let layout = typeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                : AnyLayout(HStackLayout(spacing: 12))
+            layout {
                 leading
                 trailing
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, typeSize.isAccessibilitySize ? 12 : 6)
             .frame(maxWidth: .infinity, minHeight: height, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -220,9 +262,11 @@ struct TitleSubtitle: View {
     let subtitle: String
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-            Text(subtitle).font(.system(size: 15)).foregroundStyle(Theme.muted)
+            Text(title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+            Text(subtitle).font(.subheadline).foregroundStyle(Theme.muted)
         }
+        .multilineTextAlignment(.leading)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -245,13 +289,13 @@ struct TurnCard: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 0) {
                 Text(title)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.title2.weight(.bold))
                     .tracking(-0.22)
                     .foregroundStyle(Theme.text)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.8)
                 Text(subtitle)
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(Theme.muted)
                     .lineLimit(2)
             }

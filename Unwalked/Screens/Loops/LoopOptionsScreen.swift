@@ -68,7 +68,7 @@ struct LoopOptionsScreen: View {
 
                 if model.library.streets != nil {
                     Text("Street data © OpenStreetMap contributors")
-                        .font(.system(size: 11))
+                        .font(.caption2)
                         .foregroundStyle(Theme.muted)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 8)
@@ -76,6 +76,10 @@ struct LoopOptionsScreen: View {
             }
         }
         .onChange(of: model.selectedLoopID) { _, _ in frame() }
+        .onChange(of: model.isPlanning) { _, planning in
+            // Tell VoiceOver when the loops arrive; nothing else on screen says so aloud.
+            if !planning { AccessibilityNotification.Announcement(model.planError ?? title).post() }
+        }
         .onAppear { frame() }
     }
 
@@ -106,10 +110,10 @@ struct LoopRow: View {
         } trailing: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(Format.percent(loop.newFraction))
-                    .font(.rounded(22))
+                    .font(.rounded(.title2))
                     .foregroundStyle(Theme.text)
                 Text("new")
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(Theme.muted)
             }
         }
@@ -120,14 +124,18 @@ struct LoopRow: View {
 struct Legend: View {
     var body: some View {
         HStack(spacing: 14) {
-            item(color: Palette.fresh, label: "New to you")
+            item(color: Theme.fresh, label: "New to you")
             item(color: Theme.walked, label: "Walked")
         }
-        .font(.system(size: 13))
+        .font(.footnote)
         .foregroundStyle(Theme.text)
         .padding(.horizontal, 16)
-        .frame(height: 44)
+        .padding(.vertical, 6)
+        .frame(minHeight: 44)
         .glass(radius: 22)
+        .floatingChipTextSize()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Map key: orange streets are new to you, dark streets are walked")
     }
 
     private func item(color: Color, label: String) -> some View {
