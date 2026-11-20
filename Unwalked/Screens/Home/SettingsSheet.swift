@@ -17,10 +17,13 @@ struct SettingsSheet: View {
                         } label: {
                             HStack {
                                 TitleSubtitle(title: pace.label, subtitle: pace.detail)
-                                if model.library.pace == pace { Image(systemName: "checkmark").fontWeight(.semibold) }
+                                if model.library.pace == pace {
+                                    Image(systemName: "checkmark").fontWeight(.semibold).accessibilityHidden(true)
+                                }
                             }
                         }
                         .foregroundStyle(Theme.text)
+                        .accessibilityAddTraits(model.library.pace == pace ? .isSelected : [])
                     }
                     if model.library.walks.count >= 2 {
                         Text("Learned from your walks: \(model.library.speedKmh, specifier: "%.1f") km/h")

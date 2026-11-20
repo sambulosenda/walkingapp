@@ -23,6 +23,10 @@ schemes:
     run:
       config: Debug
       storeKitConfiguration: Unwalked.storekit
+    test:
+      config: Debug
+      targets:
+        - UnwalkedUITests
     archive:
       config: Release
 
@@ -49,10 +53,26 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: Unwalked keeps guiding you with the phone in your pocket. Your walks stay on this phone.
         UIBackgroundModes: [location, audio]
         NSSupportsLiveActivities: true
+        # Where street tiles are served from (see server/). Empty: streets come from Overpass alone.
+        StreetTilesURL: ""
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
     dependencies:
       - target: UnwalkedWidgets
       - target: UnwalkedWatch
       - sdk: StoreKit.framework
+
+  UnwalkedUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UnwalkedUITests
+    dependencies:
+      - target: Unwalked
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.unwalked.app.uitests
+        GENERATE_INFOPLIST_FILE: YES
 
   UnwalkedWidgets:
     type: app-extension

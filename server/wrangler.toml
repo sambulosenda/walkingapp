@@ -1,0 +1,21 @@
+name = "unwalked-streets"
+main = "src/worker.js"
+compatibility_date = "2026-11-01"
+
+# Street tiles, one object per tile: v1/14/{x}/{y}.json
+[[r2_buckets]]
+binding = "TILES"
+bucket_name = "unwalked-streets"
+
+# Caps how often one address can make the Worker ask OpenStreetMap for a tile nobody has asked for before.
+[[ratelimits]]
+name = "FILL_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 40
+  period = 60
+
+[vars]
+# Tried in order when a tile has to be built.
+OVERPASS_ENDPOINTS = "https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter"

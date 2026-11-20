@@ -12,6 +12,8 @@ struct WalkCompleteScreen: View {
     @State private var grown = false
     @State private var reveal: Task<Void, Never>?
     @State private var rating: LoopRating?
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 64
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var record: WalkRecord { summary.record }
     private var total: Int { summary.newSegments.count }
@@ -44,44 +46,50 @@ struct WalkCompleteScreen: View {
             }
 
             BottomSheet {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                AdaptiveStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("\(count)")
-                        .font(.rounded(64))
+                        .font(.rounded(min(numeralSize, 96)))
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(count)))
                     Text(record.newStreets == 1 ? "new street" : "new streets")
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.title2.weight(.bold))
                 }
                 .foregroundStyle(Theme.text)
                 .tracking(-0.22)
                 .padding(.top, 16)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(record.newStreets) new streets")
+                .accessibilityLabel("\(record.newStreets) new \(record.newStreets == 1 ? "street" : "streets")")
 
                 Text(metaLine)
-                    .font(.system(size: 15))
+                    .font(.subheadline)
                     .foregroundStyle(Theme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 6)
 
-                HStack {
-                    Text("Your area")
-                    Spacer()
-                    Text("\(Format.percent(grown ? summary.coverageAfter : summary.coverageBefore)) walked")
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                }
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Theme.text)
-                .padding(.top, 20)
+                VStack(spacing: 10) {
+                    AdaptiveStack {
+                        Text("Your area").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(Format.percent(grown ? summary.coverageAfter : summary.coverageBefore)) walked")
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                CoverageBar(before: summary.coverageBefore,
-                            added: grown ? max(0, summary.coverageAfter - summary.coverageBefore) : 0)
-                    .padding(.top, 10)
+                    CoverageBar(before: summary.coverageBefore,
+                                added: grown ? max(0, summary.coverageAfter - summary.coverageBefore) : 0)
+                }
+                .padding(.top, 20)
+                // One thing to VoiceOver: the bar on its own is a sliver nobody could find.
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Your area: \(Format.percent(summary.coverageAfter)) walked, up from \(Format.percent(summary.coverageBefore))")
 
                 HStack(spacing: 8) {
                     Text("How was this loop?")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Theme.text)
+                        .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     RatingButton(systemName: "hand.thumbsup", label: "Good loop", isOn: rating == .good) { rate(.good) }
                     RatingButton(systemName: "hand.thumbsdown", label: "Not a good loop", isOn: rating == .bad) { rate(.bad) }
@@ -113,6 +121,12 @@ struct WalkCompleteScreen: View {
 
     private func play() {
         reveal?.cancel()
+        // With Reduce Motion on, show the finished map and count straight away.
+        guard !reduceMotion else {
+            shown = total
+            grown = true
+            return
+        }
         shown = 0
         grown = false
         reveal = Task { @MainActor in
@@ -156,14 +170,12 @@ struct CoverageBar: View {
         GeometryReader { geo in
             HStack(spacing: 0) {
                 Rectangle().fill(Theme.text).frame(width: geo.size.width * before)
-                Rectangle().fill(Palette.fresh).frame(width: geo.size.width * added)
+                Rectangle().fill(Theme.fresh).frame(width: geo.size.width * added)
                 Spacer(minLength: 0)
             }
         }
         .frame(height: 8)
         .background(Theme.chip)
         .clipShape(Capsule())
-        .accessibilityElement()
-        .accessibilityLabel("Coverage bar: \(Format.percent(before)) walked before, \(Format.percent(added)) added today")
     }
 }

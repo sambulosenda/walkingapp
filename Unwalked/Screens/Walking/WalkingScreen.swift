@@ -19,18 +19,20 @@ struct WalkingScreen: View {
                     .animation(.snappy, value: session.headline)
                 if let off = session.offRoute {
                     Text("You passed your turn. Home about \(off.minutesLate) minute\(off.minutesLate == 1 ? "" : "s") late.")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.text)
                         .padding(.horizontal, 14)
-                        .frame(height: 36)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 36)
                         .glass(radius: 18)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 if session.isRerouting {
                     Label("Finding a new way…", systemImage: "arrow.triangle.branch")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.footnote.weight(.semibold))
                         .padding(.horizontal, 14)
-                        .frame(height: 36)
+                        .padding(.vertical, 6)
+                        .frame(minHeight: 36)
                         .glass(radius: 18)
                 }
                 Spacer()
@@ -98,11 +100,11 @@ struct WalkToolbar: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(session.minutesLeft) min left")
-                    .font(.rounded(22))
+                    .font(.rounded(.title2))
                     .foregroundStyle(Theme.text)
                     .contentTransition(.numericText())
                 Text(session.statusLine)
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(Theme.muted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -118,7 +120,8 @@ struct WalkToolbar: View {
         }
         .padding(.leading, 20)
         .padding(.trailing, 12)
-        .frame(height: 72)
+        .padding(.vertical, 8)
+        .frame(minHeight: 72)
         .glass(radius: 28)
     }
 }
@@ -130,15 +133,15 @@ struct LateCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("You will be home about \(offer.minutesLate) minutes late")
-                .font(.system(size: 17, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(Theme.text)
             Text(offer.summary)
-                .font(.system(size: 15))
+                .font(.subheadline)
                 .foregroundStyle(Theme.muted)
                 .padding(.top, 4)
             HStack(spacing: 8) {
                 Button("Take the shortcut") { session.takeShortcut() }
-                    .buttonStyle(PrimaryButtonStyle(height: 48, fontSize: 15))
+                    .buttonStyle(PrimaryButtonStyle(height: 48, font: .subheadline))
                 Button("Keep my loop") { session.keepLoop() }
                     .buttonStyle(SecondaryButtonStyle())
             }
@@ -188,8 +191,10 @@ struct ReportSheet: View {
                             .frame(width: 22)
                             .accessibilityHidden(true)
                         Text(r.label)
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.body.weight(.semibold))
                             .foregroundStyle(Theme.text)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } trailing: {
                         RadioDot(isOn: reason == r)
@@ -199,8 +204,9 @@ struct ReportSheet: View {
             .padding(.top, 16)
 
             Text("You will be routed round it now and never sent here again.")
-                .font(.system(size: 13))
+                .font(.footnote)
                 .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 12)
 
             Button("Report and reroute") {
@@ -211,5 +217,7 @@ struct ReportSheet: View {
             .buttonStyle(PrimaryButtonStyle())
             .padding(.top, 16)
         }
+        // Keeps VoiceOver inside the sheet while it is open.
+        .accessibilityAddTraits(.isModal)
     }
 }

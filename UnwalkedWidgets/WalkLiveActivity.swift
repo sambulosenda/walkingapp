@@ -6,11 +6,11 @@ import WidgetKit
 struct WalkLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: WalkActivityAttributes.self) { context in
-            LockScreenView(state: context.state)
+            LockScreenView(state: context.isStale ? context.state.paused : context.state)
                 .activityBackgroundTint(Palette.activityCard)
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
-            let s = context.state
+            let s = context.isStale ? context.state.paused : context.state
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     TurnTile(symbol: s.symbol, size: 48, radius: 15)
@@ -56,9 +56,23 @@ struct WalkLiveActivity: Widget {
                 Image(systemName: s.symbol)
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
+                    .accessibilityLabel(s.headline)
             }
             .keylineTint(.white)
         }
+    }
+}
+
+extension WalkActivityAttributes.ContentState {
+    /// What to show when the app has stopped sending news: a turn from minutes ago would mislead.
+    var paused: Self {
+        var s = self
+        s.symbol = "pause.fill"
+        s.headline = "Walk paused"
+        s.detail = "Open Unwalked to carry on"
+        s.shortDistance = ""
+        s.status = "Paused"
+        return s
     }
 }
 

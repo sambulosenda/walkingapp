@@ -36,8 +36,8 @@ struct PaywallScreen: View {
                             TitleSubtitle(title: p.label, subtitle: purchases.detail(p))
                         } trailing: {
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text(purchases.monthlyPrice(p)).font(.rounded(22)).foregroundStyle(Theme.text)
-                                Text("a month").font(.system(size: 13)).foregroundStyle(Theme.muted)
+                                Text(purchases.monthlyPrice(p)).font(.rounded(.title2)).foregroundStyle(Theme.text)
+                                Text("a month").font(.footnote).foregroundStyle(Theme.muted)
                             }
                         }
                     }
@@ -54,26 +54,23 @@ struct PaywallScreen: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .disabled(purchases.isPurchasing)
+                .accessibilityLabel(purchases.isPurchasing ? "Purchasing" : purchases.cta(plan))
                 .padding(.top, 16)
 
                 Text(purchases.terms(plan))
-                    .font(.system(size: 13))
+                    .font(.footnote)
                     .foregroundStyle(Theme.muted)
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 10)
 
-                HStack(spacing: 4) {
-                    Button("Restore purchases") {
-                        Task {
-                            await purchases.restore()
-                            if purchases.hasPlus { dismiss() }
-                        }
-                    }
-                    Button("Terms") { openURL(Links.terms) }
-                    Button("Privacy") { openURL(Links.privacy) }
+                // Side by side when they fit, stacked at large text sizes.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 4) { links }
+                    VStack(spacing: 0) { links }
                 }
-                .buttonStyle(TextButtonStyle(size: 13))
+                .buttonStyle(TextButtonStyle(font: .footnote))
                 .padding(.horizontal, 10)
                 .frame(maxWidth: .infinity)
             }
@@ -89,6 +86,17 @@ struct PaywallScreen: View {
         } message: {
             Text(purchases.errorMessage ?? "")
         }
+    }
+
+    @ViewBuilder private var links: some View {
+        Button("Restore purchases") {
+            Task {
+                await purchases.restore()
+                if purchases.hasPlus { dismiss() }
+            }
+        }
+        Button("Terms") { openURL(Links.terms) }
+        Button("Privacy") { openURL(Links.privacy) }
     }
 }
 
