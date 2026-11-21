@@ -8,7 +8,6 @@ struct WalkingScreen: View {
 
     @State private var position: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
     @State private var reporting = false
-    @State private var confirmEnd = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -51,7 +50,7 @@ struct WalkingScreen: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     WalkToolbar(session: session, onReport: { withAnimation(.snappy) { reporting = true } },
-                                onEnd: { confirmEnd = true })
+                                onEnd: { model.endWalk() })
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
@@ -59,12 +58,6 @@ struct WalkingScreen: View {
             }
         }
         .animation(.snappy, value: reporting)
-        .confirmationDialog("End this walk?", isPresented: $confirmEnd, titleVisibility: .visible) {
-            Button("End walk") { model.endWalk() }
-            Button("Keep walking", role: .cancel) {}
-        } message: {
-            Text("The streets you have walked so far still count.")
-        }
         .onChange(of: session.hasArrived) { _, arrived in
             if arrived { model.endWalk() }
         }
@@ -94,7 +87,9 @@ struct WalkingScreen: View {
 struct WalkToolbar: View {
     let session: WalkSession
     let onReport: () -> Void
+    /// Called once the walker confirms ending the walk.
     let onEnd: () -> Void
+    @State private var confirmEnd = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -116,7 +111,12 @@ struct WalkToolbar: View {
                 Task { await session.headHome() }
             }
             .disabled(session.isHeadingHome)
-            RoundIconButton(systemName: "stop.fill", label: "End walk", fill: Theme.controlTint, action: onEnd)
+            RoundIconButton(systemName: "stop.fill", label: "End walk", fill: Theme.controlTint) { confirmEnd = true }
+                // Anchored to the button so the popover opens beside it, not at the top of the screen.
+                .confirmationDialog("End this walk?", isPresented: $confirmEnd, titleVisibility: .visible) {
+                    Button("End walk", action: onEnd)
+                    Button("Keep walking", role: .cancel) {}
+                }
         }
         .padding(.leading, 20)
         .padding(.trailing, 12)

@@ -8,6 +8,8 @@ struct StreetRouter: Sendable {
     let walked: [Bool]
     let blocked: [Bool]
     let metresPerSecond: Double
+    /// After dark: lit streets are preferred.
+    let prefersLit: Bool
 
     /// Longest stretch a loop may walk out and back along.
     static let longestSpur: CLLocationDistance = 150
@@ -16,11 +18,12 @@ struct StreetRouter: Sendable {
     /// Metres added to every stretch when choosing a route.
     static let hopCost = 12.0
 
-    init(graph: StreetGraph, coverage: Coverage, reports: [StreetReport], metresPerSecond: Double) {
+    init(graph: StreetGraph, coverage: Coverage, reports: [StreetReport], metresPerSecond: Double, prefersLit: Bool = false) {
         self.graph = graph
         walked = graph.walked(in: coverage)
         blocked = graph.blocked(by: reports)
         self.metresPerSecond = metresPerSecond
+        self.prefersLit = prefersLit
     }
 
     struct Candidate {
@@ -31,6 +34,8 @@ struct StreetRouter: Sendable {
         var repeatShare: Double
         /// Share of the loop on a main road, or on a path right beside a big one.
         var mainShare: Double
+        /// After dark only: share of the loop on ways tagged as unlit. Zero by day.
+        var unlitShare = 0.0
         /// How far the length is from the target, as a share of it.
         var miss = 0.0
         var bearing: Double?
@@ -42,7 +47,7 @@ struct StreetRouter: Sendable {
 
         var fits: Bool { miss <= StreetRouter.fitTolerance && spur <= StreetRouter.longestSpur }
         var score: Double {
-            loop.newFraction - 1.5 * mainShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
+            loop.newFraction - 1.5 * mainShare - 1.5 * unlitShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
                 - 0.03 * turnsPerKm
         }
         /// Turns per kilometre: a loop that turns every hundred metres is tiring to follow.
@@ -95,7 +100,9 @@ struct StreetRouter: Sendable {
         }
         candidates.sort { a, b in a.fits != b.fits ? a.fits : a.score > b.score }
         var picked: [Candidate] = []
-        for candidate in candidates where picked.count < 3 {
+        // A long out-and-back stretch rules a loop out, unless every loop has one: then show the best rather than none.
+        let noLongSpur = candidates.filter { $0.spur <= Self.longestSpur }
+        for candidate in (noLongSpur.isEmpty ? Array(candidates.prefix(1)) : noLongSpur) where picked.count < 3 {
             // Fewer loops is better than one that is well off the time asked for.
             if !picked.isEmpty, candidate.miss > 2 * Self.fitTolerance { continue }
             let tooSimilar = picked.contains { other in
@@ -149,6 +156,7 @@ struct StreetRouter: Sendable {
         let s = graph.segments[segment]
         // A few metres per stretch, so the route prefers staying on a street to weaving between short ones.
         var c = (s.length + Self.hopCost) * s.factor
+        if prefersLit { c *= s.darkFactor }
         if walked[segment] { c *= 1.6 }
         // Coming back along a street already in this loop is a last resort.
         if used.contains(segment) { c *= 6 }
@@ -195,7 +203,7 @@ struct StreetRouter: Sendable {
         if origin.distance(to: graph.nodes[stops[0]]) > 3 { path.append(origin) }
 
         var seen = Set<Int>()
-        var spur = 0.0, run = 0.0, repeated = 0.0, main = 0.0, total = 0.0
+        var spur = 0.0, run = 0.0, repeated = 0.0, main = 0.0, unlit = 0.0, total = 0.0
         var previous: [Coord]?
         var previousSegment: Int?
         var sharpTurns = 0
@@ -224,6 +232,7 @@ struct StreetRouter: Sendable {
                 run = 0
             }
             if s.isMain || s.besideBigRoad { main += s.length }
+            if prefersLit, s.darkFactor >= 3 { unlit += s.length }
             total += s.length
             segments.append(LoopSegment(path: oriented, street: s.name, isNew: !again && !walked[hop.segment], length: s.length))
             previous = oriented
@@ -240,6 +249,7 @@ struct StreetRouter: Sendable {
                                segments: segments, distance: distance, duration: distance / metresPerSecond)
         return Candidate(loop: loop, used: used, spur: spur,
                          repeatShare: total > 0 ? repeated / total : 0, mainShare: total > 0 ? main / total : 0,
+                         unlitShare: total > 0 ? unlit / total : 0,
                          bearing: bearing, doubledShare: Self.doubledShare(of: path, home: home),
                          reversals: steps.filter { $0.kind == .uTurn }.count + sharpTurns)
     }

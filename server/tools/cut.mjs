@@ -5,7 +5,7 @@
 //
 // With --inside, only tiles that lie wholly within that circle are written: a file fetched with an
 // "around" query is only complete inside its circle, and a half-empty tile would be served for months.
-// Then upload each file under the same path:  wrangler r2 object put unwalked-streets/v1/14/x/y.json --file ...
+// Then upload each file under the same path:  wrangler r2 object put unwalked-streets/v2/14/x/y.json --file ...
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'

@@ -6,7 +6,7 @@ export const ZOOM = 14
 /** Tags the app's street rules read. Everything else is dropped. */
 const KEEP = [
   'highway', 'name', 'ref', 'foot', 'access', 'area', 'service', 'maxspeed', 'junction', 'oneway',
-  'sidewalk', 'sidewalk:both', 'sidewalk:left', 'sidewalk:right',
+  'sidewalk', 'sidewalk:both', 'sidewalk:left', 'sidewalk:right', 'lit',
 ]
 
 export function tileOf(lat, lon, zoom = ZOOM) {
@@ -25,7 +25,7 @@ export function boundsOf(x, y, zoom = ZOOM) {
 }
 
 export function keyOf(x, y, zoom = ZOOM) {
-  return `v1/${zoom}/${x}/${y}.json`
+  return `v2/${zoom}/${x}/${y}.json`
 }
 
 /** The Overpass query for every street with a point inside a tile. */

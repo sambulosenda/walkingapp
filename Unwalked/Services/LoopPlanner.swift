@@ -13,13 +13,15 @@ struct LoopPlanner {
     var metresPerSecond: Double
     /// The streets around home, when they have been downloaded.
     var streets: StreetGraph?
+    /// After dark: plan on lit streets where there is a choice. Apple's directions fallback ignores it.
+    var prefersLit = false
 
     /// Runs street-graph work off the main thread.
     private func onStreets<T: Sendable>(_ work: @escaping @Sendable (StreetRouter) -> T) async -> T? {
         guard let streets else { return nil }
-        let coverage = coverage, reports = reports, speed = metresPerSecond
+        let coverage = coverage, reports = reports, speed = metresPerSecond, lit = prefersLit
         return await Task.detached(priority: .userInitiated) {
-            work(StreetRouter(graph: streets, coverage: coverage, reports: reports, metresPerSecond: speed))
+            work(StreetRouter(graph: streets, coverage: coverage, reports: reports, metresPerSecond: speed, prefersLit: lit))
         }.value
     }
 

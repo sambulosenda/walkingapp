@@ -36,9 +36,10 @@ struct HomeScreen: View {
                 MinutePicker().padding(.top, 12)
                 if model.isAfterDark {
                     Label {
-                        Text("After dark, loops keep to well-lit streets")
+                        Text("After dark, loops prefer well-lit streets")
                     } icon: {
                         Image(systemName: "moon").font(.system(size: 14, weight: .semibold))
+                            .accessibilityHidden(true)
                     }
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)

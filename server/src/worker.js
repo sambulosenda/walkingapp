@@ -17,7 +17,7 @@ const HEADERS = {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
-    const match = url.pathname.match(/^\/v1\/(\d+)\/(\d+)\/(\d+)\.json$/)
+    const match = url.pathname.match(/^\/v2\/(\d+)\/(\d+)\/(\d+)\.json$/)
     if (request.method !== 'GET' || !match) return new Response('Not found', { status: 404 })
     const [zoom, x, y] = match.slice(1).map(Number)
     const size = 2 ** ZOOM
