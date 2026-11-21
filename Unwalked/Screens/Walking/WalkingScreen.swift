@@ -82,7 +82,7 @@ struct WalkingScreen: View {
 
     private var layers: MapLayers {
         var l = MapLayers(
-            walked: model.library.walks.map(\.path) + [session.trail],
+            walked: model.library.walkedPaths + [session.trail],
             ahead: session.pathAhead,
             fresh: session.newAhead,
             home: session.route.home,

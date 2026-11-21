@@ -11,7 +11,7 @@ struct LoopOptionsScreen: View {
         ZStack(alignment: .bottom) {
             UnwalkedMap(
                 layers: MapLayers(
-                    walked: model.library.walks.map(\.path),
+                    walked: model.library.walkedPaths,
                     loop: selected?.path,
                     fresh: selected?.segments.filter(\.isNew).map(\.path) ?? [],
                     home: model.home,

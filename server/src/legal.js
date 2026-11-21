@@ -70,6 +70,9 @@ all of it. Nobody, including us, can recover it.</p>
   feels unsafe, it sends the street's name, the map square it sits in, how long the stretch was,
   the reason and the date, so the street can be checked. It does not send where you were, what
   time it was, or anything that identifies you or your phone.</li>
+  <li><strong>A stop you search for.</strong> If you ask a loop to pass a café, a post box or a shop,
+  the search is Apple's: what you typed and the area searched go to Apple under
+  <a href="https://www.apple.com/legal/privacy/">Apple's privacy policy</a>, and not to us.</li>
   <li><strong>Server logs.</strong> Our tile server runs on Cloudflare, which records the IP address
   of incoming requests for a short time to keep the service up and stop abuse. We do not join those
   logs to anything else, and we do not try to identify anyone from them.</li>
@@ -79,6 +82,12 @@ all of it. Nobody, including us, can recover it.</p>
 <p>Unwalked asks for your location so it can guide you along a loop and fill in your map as you
 walk. It is used on the phone, as you walk, and written only to that file on your phone. You can
 turn it off at any time in iOS Settings; the app cannot guide a walk without it.</p>
+
+<h2>Apple Health</h2>
+<p>Only if you ask it to, Unwalked reads the routes of walking and hiking workouts from Apple Health
+to colour in streets you have already walked, and can save each of your walks to Health as a workout.
+What it reads stays on your phone with your other walks. Nothing from Apple Health is sent to us or
+to anyone else, and it is never used for advertising.</p>
 
 <h2>Unwalked Plus</h2>
 <p>Subscriptions are sold and renewed by Apple. Apple tells the app whether a subscription is

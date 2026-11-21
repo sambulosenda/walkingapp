@@ -11,7 +11,7 @@ struct HomeScreen: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             UnwalkedMap(
-                layers: MapLayers(walked: model.library.walks.map(\.path), home: model.home),
+                layers: MapLayers(walked: model.library.walkedPaths, home: model.home),
                 position: $position
             )
 

@@ -21,7 +21,8 @@ Requires Xcode 16+, iOS 17+, watchOS 10+.
 
 In the Simulator, set a location (Features › Location › Custom Location), plan a loop, and launch with the
 `-simulateWalk` argument (Scheme › Run › Arguments). The walker then moves round the loop at 5x speed,
-so you can see turn cues, the Live Activity and Walk complete.
+so you can see turn cues, the Live Activity and Walk complete. Add `-plus` to try the Plus features
+without a purchase.
 
 ## What's where
 
@@ -54,6 +55,14 @@ so you can see turn cues, the Live Activity and Walk complete.
 - **Guidance** follows you along the route: turn cues 20 to 30 m before each turn (two taps and a low tone for left,
   three taps and a high tone for right, then the turn spoken), a new route when you leave the loop by 30 m, and a
   shortcut offer once you would be more than 10% over your time.
+- **Route preferences**: quiet, green, well lit and step-free are chips on Loop options. Green uses a
+  mark the street data carries for ways that run through a park, garden, common or wood; step-free
+  never uses a flight of steps. Quiet, green and step-free are part of Plus.
+- **Part-way round**, tapping the time left makes the walk ten minutes shorter or longer (Plus).
+- **A stop on the way**: Apple's search finds a café, post box or shop, and every loop goes out through it.
+- **Apple Health**: past walking routes can be brought in to colour the map (Plus), and each walk can be
+  saved as a workout. Needs the HealthKit capability on the App ID.
+- **Sharing** a walk or the map makes a picture of the streets alone, with nothing within 200 m of home.
 - **Plus** is two StoreKit subscriptions, `com.unwalked.plus.yearly` and `com.unwalked.plus.monthly`.
   Two free loops a week, resetting on Monday.
 - Everything is stored on the phone, in `Application Support/unwalked.json`. Test purchases with `Unwalked.storekit`,
@@ -64,7 +73,7 @@ so you can see turn cues, the Live Activity and Walk complete.
 The public Overpass servers take 25 to 55 seconds for a neighbourhood and turn automated traffic away when busy,
 so the app should not depend on them. `server/` is a Cloudflare Worker in front of an R2 bucket:
 
-- `GET /v1/14/{x}/{y}.json` returns the streets in one tile, already cut down to the tags the app reads.
+- `GET /v3/14/{x}/{y}.json` returns the streets in one tile, already cut down to the tags the app reads.
 - A tile that is in the bucket is served from it. One that is not is fetched from Overpass once, saved and served,
   so each square of the map is only ever built one time. One address may trigger 40 builds a minute.
 - `node server/tools/cut.mjs <overpass.json> <out-dir> --inside <lat>,<lon>,<radius>` cuts a saved Overpass answer

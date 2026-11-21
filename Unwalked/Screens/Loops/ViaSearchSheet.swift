@@ -11,16 +11,23 @@ struct ViaSearchSheet: View {
     @State private var results: [ViaPoint] = []
     @State private var searching = false
     @State private var searched = false
+    @State private var failure: String?
 
-    private static let quick = ["Café", "Post box", "Shop", "Bakery", "Pharmacy"]
+    /// Kinds of place to pass, each with the map categories it means.
+    private static var quick: [(label: String, categories: [MKPointOfInterestCategory])] {
+        var postBox: [MKPointOfInterestCategory] = [.postOffice]
+        if #available(iOS 18.0, *) { postBox.insert(.mailbox, at: 0) }
+        return [("Café", [.cafe]), ("Post box", postBox), ("Shop", [.store, .foodMarket]),
+                ("Bakery", [.bakery]), ("Pharmacy", [.pharmacy])]
+    }
 
     var body: some View {
         NavigationStack {
             List {
                 if !searched {
                     Section("Pass one on the way") {
-                        ForEach(Self.quick, id: \.self) { word in
-                            Button(word) { query = word; Task { await search() } }
+                        ForEach(Self.quick, id: \.label) { kind in
+                            Button(kind.label) { Task { await search(categories: kind.categories) } }
                                 .foregroundStyle(Theme.text)
                         }
                     }
@@ -28,7 +35,7 @@ struct ViaSearchSheet: View {
                 if searching {
                     ProgressView().frame(maxWidth: .infinity)
                 } else if searched, results.isEmpty {
-                    Text("Nothing by that name near enough to walk past.")
+                    Text(failure ?? "Nothing by that name near enough to walk past.")
                         .foregroundStyle(Theme.muted)
                 } else {
                     ForEach(results) { place in
@@ -62,17 +69,40 @@ struct ViaSearchSheet: View {
         Double(model.minutes) * 60 * model.library.metresPerSecond * 0.4
     }
 
+    /// With `categories`, looks for that kind of place inside the reach and nowhere else. Without,
+    /// searches for what was typed: Apple treats the area as a hint for free text, and will happily
+    /// answer "café" with one 40 km away, so the answers are cut down to the reach afterwards.
     @MainActor
-    private func search() async {
+    private func search(categories: [MKPointOfInterestCategory]? = nil) async {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, let home = model.home else { return }
+        guard let home = model.home, categories != nil || !text.isEmpty else { return }
         searching = true
         defer { searching = false; searched = true }
-        let request = MKLocalSearch.Request()
-        request.naturalLanguageQuery = text
-        request.region = Geo.region(around: home, radius: reach)
-        request.resultTypes = .pointOfInterest
-        let found = (try? await MKLocalSearch(request: request).start())?.mapItems ?? []
+        let search: MKLocalSearch
+        if let categories {
+            let request = MKLocalPointsOfInterestRequest(center: home.cl, radius: reach)
+            request.pointOfInterestFilter = MKPointOfInterestFilter(including: categories)
+            search = MKLocalSearch(request: request)
+        } else {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = text
+            request.region = Geo.region(around: home, radius: reach)
+            request.resultTypes = .pointOfInterest
+            if #available(iOS 18.0, *) { request.regionPriority = .required }
+            search = MKLocalSearch(request: request)
+        }
+        let found: [MKMapItem]
+        do {
+            found = try await search.start().mapItems
+            failure = nil
+        } catch {
+            // A search that failed is not the same as one that found nothing, and should not say so.
+            NSLog("Unwalked via search failed: %@", String(describing: error))
+            failure = "Search isn't available right now. Check your connection and try again."
+            found = []
+        }
+        NSLog("Unwalked via search: %d found, nearest %.0f m, reach %.0f m", found.count,
+              found.map { Coord($0.placemark.coordinate).distance(to: home) }.min() ?? -1, reach)
         results = found
             .compactMap { item -> ViaPoint? in
                 guard let name = item.name else { return nil }

@@ -18,6 +18,7 @@ final class AppModel {
     let watch = WatchBridge()
     let streets = StreetStore()
     let reports = ReportOutbox()
+    let health = HealthLink()
 
     var screen: Screen
     var onboardingStep = 1
@@ -194,6 +195,7 @@ final class AppModel {
         location.onUpdate = nil
         location.stopWalking()
         let summary = session.finish()
+        Task { await health.save(summary.record) }
         self.session = nil
         loops = []
         screen = .complete(summary)
