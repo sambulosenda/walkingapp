@@ -17,6 +17,7 @@ final class AppModel {
     let purchases: Purchases
     let watch = WatchBridge()
     let streets = StreetStore()
+    let reports = ReportOutbox()
 
     var screen: Screen
     var onboardingStep = 1
@@ -141,7 +142,8 @@ final class AppModel {
         guard canStartLoop else { showPaywall = true; return }
         if !purchases.hasPlus { library.useFreeLoop() }
 
-        let session = WalkSession(loop: loop, plannedMinutes: minutes, library: library, watch: watch)
+        let session = WalkSession(loop: loop, plannedMinutes: minutes, library: library, watch: watch,
+                                  reports: reports)
         self.session = session
         location.onUpdate = { [weak session] fix in session?.update(with: fix) }
         location.startWalking()

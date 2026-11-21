@@ -18,6 +18,10 @@ const HEADERS = {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
+
+    // A walker reporting a street they could not use. Queued for review; see F8 in the PRD.
+    if (request.method === 'POST' && url.pathname === '/v1/reports') return report(request, env, ctx)
+
     if (request.method !== 'GET') return new Response('Not found', { status: 404 })
 
     // The App Store listing and the paywall link here, so it has to stay up as long as the app is on sale.
@@ -62,6 +66,60 @@ function respond(body, cache, cacheKey, ctx) {
   const response = new Response(body, { headers: HEADERS })
   ctx.waitUntil(cache.put(cacheKey, response.clone()))
   return response
+}
+
+/**
+ * Takes one street report and files it for review.
+ *
+ * A report says which street, in which tile, and why — never where the walker is. The tile is
+ * the same 1.5 km square the app already asks for street data in, so nothing more precise about
+ * anyone leaves the phone than already did. Nothing identifies the walker or the device.
+ */
+async function report(request, env, ctx) {
+  const who = request.headers.get('cf-connecting-ip') ?? 'unknown'
+  if (env.FILL_LIMITER && !(await env.FILL_LIMITER.limit({ key: `report:${who}` })).success) {
+    return new Response('Too many', { status: 429, headers: { 'retry-after': '60' } })
+  }
+
+  let body
+  try {
+    body = await request.json()
+  } catch {
+    return new Response('Bad report', { status: 400 })
+  }
+
+  const reasons = ['blocked', 'privateWay', 'unsafe']
+  const size = 2 ** ZOOM
+  const ok =
+    body &&
+    reasons.includes(body.reason) &&
+    Number.isInteger(body.x) && body.x >= 0 && body.x < size &&
+    Number.isInteger(body.y) && body.y >= 0 && body.y < size &&
+    Number.isInteger(body.metres) && body.metres >= 0 && body.metres <= 1000 &&
+    typeof body.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.day) &&
+    (body.street === undefined || (typeof body.street === 'string' && body.street.length <= 120))
+
+  if (!ok) return new Response('Bad report', { status: 400 })
+
+  // Only the fields above are kept, so anything else the body carried is dropped here.
+  const filed = {
+    reason: body.reason,
+    street: body.street ?? null,
+    tile: { z: ZOOM, x: body.x, y: body.y },
+    metres: body.metres,
+    day: body.day,
+    filed: new Date().toISOString().slice(0, 10),
+  }
+  // Keyed by what was reported, not at random: one walker tapping twice, or ten walkers
+  // reporting the same closed street on the same day, file one report rather than ten.
+  const name = [filed.reason, filed.street ?? '', filed.tile.x, filed.tile.y, filed.day].join('|')
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(name))
+  const hash = [...new Uint8Array(digest)].slice(0, 10).map((b) => b.toString(16).padStart(2, '0')).join('')
+  const key = `reports/${filed.day}/${hash}.json`
+  ctx.waitUntil(env.TILES.put(key, JSON.stringify(filed), {
+    httpMetadata: { contentType: 'application/json; charset=utf-8' },
+  }))
+  return new Response(null, { status: 204 })
 }
 
 /** Asks each Overpass server in turn for the streets in a tile. Null when none answers. */

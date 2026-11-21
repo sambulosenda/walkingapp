@@ -8,6 +8,8 @@ struct UnwalkedApp: App {
         WindowGroup {
             RootView()
                 .environment(model)
+                // Reports made with no signal, or while the server was down, go now.
+                .task { await model.reports.flush() }
         }
     }
 }

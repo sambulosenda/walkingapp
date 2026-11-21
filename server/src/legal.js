@@ -66,6 +66,10 @@ all of it. Nobody, including us, can recover it.</p>
   <li><strong>Before the streets arrive.</strong> The first loop you plan may fall back to Apple's
   walking directions, which sends start and end points to Apple under
   <a href="https://www.apple.com/legal/privacy/">Apple's privacy policy</a>.</li>
+  <li><strong>A street you report.</strong> If you tell Unwalked a street is blocked, private or
+  feels unsafe, it sends the street's name, the map square it sits in, how long the stretch was,
+  the reason and the date, so the street can be checked. It does not send where you were, what
+  time it was, or anything that identifies you or your phone.</li>
   <li><strong>Server logs.</strong> Our tile server runs on Cloudflare, which records the IP address
   of incoming requests for a short time to keep the service up and stop abuse. We do not join those
   logs to anything else, and we do not try to identify anyone from them.</li>

@@ -20,6 +20,9 @@ final class WalkSession {
         var summary: String
     }
 
+    /// Street reports waiting to be sent for review.
+    private let outbox: ReportOutbox
+
     /// The loop as planned, used for new-street counts at the end.
     let plannedLoop: PlannedLoop
     /// The route being followed now. Changes on a shortcut, heading home or a reroute.
@@ -58,7 +61,9 @@ final class WalkSession {
     /// Set once, when the walk starts: reroutes and shortcuts keep to lit streets if it began after dark.
     private let startedAfterDark: Bool
 
-    init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge) {
+    init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge,
+         reports: ReportOutbox) {
+        outbox = reports
         plannedLoop = loop
         route = loop
         self.plannedMinutes = plannedMinutes
@@ -356,6 +361,11 @@ final class WalkSession {
     func report(_ reason: ReportReason) async {
         let stretch = stretchAhead
         library.report(StreetReport(path: stretch, reason: reason))
+        // Excluded from this walker's loops above; queued for review here (F8).
+        if let queued = ReportOutbox.describe(stretch: stretch, on: route, reason: reason) {
+            outbox.add(queued)
+            Task { await outbox.flush() }
+        }
         guard let here else { return }
         isRerouting = true
         defer { isRerouting = false }

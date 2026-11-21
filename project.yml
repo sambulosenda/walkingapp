@@ -58,6 +58,9 @@ targets:
         # The privacy policy the paywall links to, served by the same Worker at /privacy.
         # App Review requires a working link, so this must be filled in before uploading a build.
         PrivacyPolicyURL: "https://unwalked-streets.sambulo.workers.dev/privacy"
+        # Where a reported street is sent for review (F8). Empty: reports only ever stay on the
+        # phone, so the walker's own loops avoid the street but nobody ever sees it.
+        ReportsURL: "https://unwalked-streets.sambulo.workers.dev/v1/reports"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     dependencies:
