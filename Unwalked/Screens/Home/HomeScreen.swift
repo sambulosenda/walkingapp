@@ -5,6 +5,7 @@ import SwiftUI
 struct HomeScreen: View {
     @Environment(AppModel.self) private var model
     @State private var position: MapCameraPosition = .automatic
+    @State private var showMilestones = false
 
     private var firstRun: Bool { !model.library.hasWalked }
 
@@ -17,7 +18,14 @@ struct HomeScreen: View {
 
             VStack {
                 HStack {
-                    CoveragePill(fraction: model.library.coverageFraction)
+                    // No home yet, no area to have walked a share of.
+                    if model.library.homeArea != nil {
+                        Button { showMilestones = true } label: {
+                            CoveragePill(fraction: model.library.coverageFraction)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Shows your milestones")
+                    }
                     Spacer()
                     GlassIconButton(systemName: "slider.horizontal.3", label: "Settings") { model.showSettings = true }
                 }
@@ -29,7 +37,9 @@ struct HomeScreen: View {
             BottomSheet {
                 if firstRun {
                     SheetTitle(text: "Every street here is unwalked").padding(.top, 16)
-                    BodyText(text: "Pick a time. Your first loop starts at your door.").padding(.top, 4)
+                    BodyText(text: model.library.homeArea == nil
+                             ? "Pick a time. Your first loop starts from where you are now, and that becomes home. You can move it in Settings."
+                             : "Pick a time. Your first loop starts at your door.").padding(.top, 4)
                 } else {
                     SheetTitle(text: "How long have you got?").padding(.top, 16)
                 }
@@ -51,11 +61,21 @@ struct HomeScreen: View {
                         .contentTransition(.numericText())
                         .padding(.top, 10)
                 }
-                Button(firstRun ? "Find my first loop" : "Find loops") { model.findLoops() }
+                if model.locationRefused {
+                    BodyText(text: "Unwalked needs your location to plan a loop from your door.").padding(.top, 12)
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .padding(.top, 8)
+                }
+                Button(model.isLocating ? "Finding where you are…" : (firstRun ? "Find my first loop" : "Find loops")) { model.findLoops() }
                     .buttonStyle(PrimaryButtonStyle())
+                    .disabled(model.isLocating)
                     .padding(.top, 20)
             }
         }
+        .sheet(isPresented: $showMilestones) { MilestonesSheet().environment(model) }
         .onAppear { frame() }
         .onChange(of: model.home) { _, _ in frame() }
     }
@@ -64,7 +84,10 @@ struct HomeScreen: View {
         if let home = model.home {
             position = .home(home, radius: model.library.homeArea?.radius ?? 700, sheetFraction: 0.42)
         } else {
-            position = .userLocation(fallback: .automatic)
+            // Before the walker has said where they are, show Britain rather than whatever the map picks.
+            position = .userLocation(fallback: .region(MKCoordinateRegion(
+                center: .init(latitude: 54.2, longitude: -2.6),
+                span: .init(latitudeDelta: 11, longitudeDelta: 11))))
         }
     }
 }

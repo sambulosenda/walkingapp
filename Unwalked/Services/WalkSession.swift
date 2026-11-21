@@ -445,13 +445,16 @@ final class WalkSession {
         let newDistance = newSegments.reduce(0) { $0 + $1.length }
 
         let before = library.coverageFraction
+        let streetsBefore = library.completedStreets, milestonesBefore = Set(library.milestones)
         let record = WalkRecord(date: startDate, duration: Date().timeIntervalSince(startDate), distance: distance,
                                 path: path, newStreets: newStreets,
                                 newFraction: distance > 0 ? min(1, newDistance / distance) : 0,
                                 plannedMinutes: plannedMinutes)
         library.record(record)
         return WalkSummary(record: record, newSegments: newSegments.map(\.path),
-                           coverageBefore: before, coverageAfter: library.coverageFraction)
+                           coverageBefore: before, coverageAfter: library.coverageFraction,
+                           completedStreets: library.completedStreets.subtracting(streetsBefore).sorted(),
+                           milestones: library.milestones.filter { !milestonesBefore.contains($0) })
     }
 
     func cancel() {

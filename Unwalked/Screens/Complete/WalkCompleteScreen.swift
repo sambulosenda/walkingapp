@@ -74,6 +74,18 @@ struct WalkCompleteScreen: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 6)
 
+                if !reached.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(reached, id: \.self) { line in
+                            Label(line, systemImage: "rosette")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(Theme.text)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .padding(.top, 14)
+                }
+
                 VStack(spacing: 10) {
                     AdaptiveStack {
                         Text("Your area").frame(maxWidth: .infinity, alignment: .leading)
@@ -124,6 +136,18 @@ struct WalkCompleteScreen: View {
             headline: "\(record.newStreets) new \(record.newStreets == 1 ? "street" : "streets")",
             detail: "\(minutes) min · \(Format.km(record.distance)) · \(Format.percent(summary.coverageAfter)) of my area walked"
         )
+    }
+
+    /// What this walk reached: milestones first, then streets finished, three lines at most.
+    private var reached: [String] {
+        var lines = summary.milestones.map(\.title)
+        let streets = summary.completedStreets
+        if streets.count == 1 {
+            lines.append("You've walked all of \(streets[0])")
+        } else if streets.count > 1 {
+            lines.append("You've walked all of \(streets[0]) and \(streets.count - 1) more")
+        }
+        return Array(lines.prefix(3))
     }
 
     private var metaLine: String {

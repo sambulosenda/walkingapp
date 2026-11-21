@@ -212,6 +212,10 @@ struct WalkSummary: Hashable {
     var newSegments: [[Coord]]
     var coverageBefore: Double
     var coverageAfter: Double
+    /// Streets this walk finished: walked end to end for the first time.
+    var completedStreets: [String] = []
+    /// Milestones this walk reached.
+    var milestones: [Milestone] = []
 }
 
 enum Format {

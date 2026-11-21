@@ -537,6 +537,18 @@ final class StreetGraph: @unchecked Sendable {
         return total > 0 ? done / total : nil
     }
 
+    /// Named streets inside the home area that have been walked end to end: every stretch of that name
+    /// in the area, and at least 150 m of it, so a ten-metre stub does not count as a street.
+    func completedStreets(in coverage: Coverage, area: HomeArea) -> Set<String> {
+        var total: [String: Double] = [:], done: [String: Double] = [:]
+        for s in segments {
+            guard let name = s.name, s.path[s.path.count / 2].distance(to: area.center) <= area.radius else { continue }
+            total[name, default: 0] += s.length
+            if coverage.walkedFraction(of: s.path) >= Self.walkedShare { done[name, default: 0] += s.length }
+        }
+        return Set(total.filter { $0.value >= 150 && (done[$0.key] ?? 0) >= $0.value - 1 }.keys)
+    }
+
     /// Named streets inside the home area.
     func streetCount(in area: HomeArea) -> Int {
         var names = Set<String>()

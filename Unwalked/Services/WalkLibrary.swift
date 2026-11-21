@@ -30,9 +30,12 @@ final class WalkLibrary {
     private var streetCoverage: Double?
     /// Named streets in the home area, when street data is in.
     private(set) var streetCount: Int?
+    /// Streets in the home area walked end to end, when street data is in.
+    private(set) var completedStreets: Set<String> = []
 
     private func measureCoverage() {
-        guard let streets, let area = data.homeArea else { streetCoverage = nil; streetCount = nil; return }
+        guard let streets, let area = data.homeArea else { streetCoverage = nil; streetCount = nil; completedStreets = []; return }
+        completedStreets = streets.completedStreets(in: data.coverage, area: area)
         streetCoverage = streets.coverage(of: data.coverage, in: area)
         streetCount = streets.streetCount(in: area)
     }
@@ -138,6 +141,19 @@ final class WalkLibrary {
     }
 
     var metresPerSecond: Double { speedKmh / 3.6 }
+
+    // MARK: Milestones
+
+    /// Kilometres walked with Unwalked.
+    var totalKm: Double { data.walks.reduce(0) { $0 + $1.distance } / 1000 }
+
+    var milestones: [Milestone] {
+        Milestones.earned(streets: completedStreets.count, coverage: coverageFraction, km: totalKm)
+    }
+
+    var nextMilestones: [String] {
+        Milestones.next(streets: completedStreets.count, coverage: coverageFraction, km: totalKm)
+    }
 
     // MARK: Reports
 

@@ -2,10 +2,27 @@ import SwiftUI
 
 // MARK: - Bottom sheet
 
-/// The white card that rises from the bottom of most v2 screens, with its grabber.
+/// The card that rises from the bottom of most screens, with its grabber.
+///
+/// Like the sheet in Maps, it can be pulled down out of the map's way and back up: drag the grabber
+/// or tap it. Collapsed, the top of the sheet stays in view.
 struct BottomSheet<Content: View>: View {
     var bottomPadding: CGFloat = 34
+    /// False for sheets that are the whole point of the screen, which have nothing behind them to see.
+    var collapsible = true
     @ViewBuilder var content: Content
+
+    @State private var collapsed = false
+    @State private var height: CGFloat = 0
+    @GestureState private var drag: CGFloat = 0
+
+    /// How much of a collapsed sheet stays on screen: the grabber and its title.
+    private static var peek: CGFloat { 104 }
+    private var hidden: CGFloat { max(0, height - Self.peek) }
+    private var offset: CGFloat {
+        guard collapsible else { return 0 }
+        return min(hidden, max(0, (collapsed ? hidden : 0) + drag))
+    }
 
     var body: some View {
         // At the largest text sizes a sheet can be taller than the screen, and then it scrolls.
@@ -19,18 +36,46 @@ struct BottomSheet<Content: View>: View {
                 .shadow(color: Palette.ink.opacity(0.10), radius: 15, y: -10)
                 .ignoresSafeArea(edges: .bottom)
         )
+        .background(GeometryReader { proxy in
+            Color.clear
+                .onAppear { height = proxy.size.height }
+                .onChange(of: proxy.size.height) { _, new in height = new }
+        })
+        .offset(y: offset)
+        .animation(.snappy, value: collapsed)
         // However tall the sheet grows, the back button and the other controls above it stay in reach.
         .padding(.top, 60)
     }
 
+    private var grabber: some View {
+        Capsule()
+            .fill(Theme.grabber)
+            .frame(width: 36, height: 5)
+            .frame(maxWidth: .infinity)
+            .frame(height: 44, alignment: .top)
+            .padding(.top, 8)
+            .contentShape(Rectangle())
+            .onTapGesture { if collapsible { collapsed.toggle() } }
+            .gesture(
+                DragGesture(minimumDistance: 4)
+                    .updating($drag) { value, state, _ in state = value.translation.height }
+                    .onEnded { value in
+                        let moved = value.predictedEndTranslation.height
+                        if collapsed { if moved < -40 { collapsed = false } } else if moved > 60 { collapsed = true }
+                    },
+                including: collapsible ? .all : .subviews
+            )
+            // The strip is 44 pt tall to be easy to grab, but takes up only the grabber's own room.
+            .padding(.bottom, -31)
+            .accessibilityElement()
+            .accessibilityLabel(collapsed ? "Show the sheet" : "Hide the sheet to see the map")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHidden(!collapsible)
+    }
+
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Capsule()
-                .fill(Theme.grabber)
-                .frame(width: 36, height: 5)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .accessibilityHidden(true)
+            grabber
             content
         }
         .padding(.horizontal, 20)
@@ -154,31 +199,36 @@ struct RoundIconButton: View {
 
 // MARK: - Glass
 
-/// Frosted floating surface over the map (the design's 78% white with an 18 pt blur).
-struct Glass: ViewModifier {
+/// Floating surface over the map: the system's Liquid Glass where there is one, and before that
+/// the design's frosted white.
+struct GlassSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     var radius: CGFloat
     func body(content: Content) -> some View {
-        content
-            .background(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(reduceTransparency ? AnyShapeStyle(Theme.sheet) : AnyShapeStyle(.ultraThinMaterial))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .fill(reduceTransparency ? Theme.sheet : Theme.glass)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(.white.opacity(0.7), lineWidth: 1)
-                            .blendMode(.overlay)
-                    )
-                    .shadow(color: Palette.ink.opacity(0.14), radius: 12, y: 8)
-            )
+        if #available(iOS 26.0, *), !reduceTransparency {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        } else {
+            content
+                .background(
+                    RoundedRectangle(cornerRadius: radius, style: .continuous)
+                        .fill(reduceTransparency ? AnyShapeStyle(Theme.sheet) : AnyShapeStyle(.ultraThinMaterial))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                                .fill(reduceTransparency ? Theme.sheet : Theme.glass)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: radius, style: .continuous)
+                                .strokeBorder(.white.opacity(0.7), lineWidth: 1)
+                                .blendMode(.overlay)
+                        )
+                        .shadow(color: Palette.ink.opacity(0.14), radius: 12, y: 8)
+                )
+        }
     }
 }
 
 extension View {
-    func glass(radius: CGFloat = 22) -> some View { modifier(Glass(radius: radius)) }
+    func glass(radius: CGFloat = 22) -> some View { modifier(GlassSurface(radius: radius)) }
 
     /// For the small chips that float over the top of the map. Like a navigation bar, they stop growing
     /// before they would cover the map, and show the Large Content Viewer on a long press instead.

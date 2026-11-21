@@ -8,7 +8,6 @@ final class AppModel {
     static weak var current: AppModel?
 
     enum Screen: Equatable {
-        case onboarding
         case home
         case loops
         case walking
@@ -23,8 +22,11 @@ final class AppModel {
     let reports = ReportOutbox()
     let health = HealthLink()
 
-    var screen: Screen
-    var onboardingStep = 1
+    var screen: Screen = .home
+    /// True while the first loop waits for the walker's answer about location, and for a fix.
+    private(set) var isLocating = false
+    /// True once location has been refused, so Home can say what to do about it.
+    private(set) var locationRefused = false
 
     /// "How long have you got?"
     var minutes = 40
@@ -55,7 +57,6 @@ final class AppModel {
         self.library = library
         self.location = location
         self.purchases = purchases
-        screen = library.onboarded && library.homeArea != nil ? .home : .onboarding
         LiveActivityController.endLeftovers()
         Task { await loadStreets() }
         Self.current = self
@@ -116,11 +117,28 @@ final class AppModel {
 
     // MARK: Onboarding
 
-    func finishOnboarding(area: HomeArea) {
-        library.setHomeArea(area)
+    /// There is no onboarding. The first loop asks for location there and then, when the reason is on
+    /// screen, and where the walker is standing becomes home. It can be moved in Settings.
+    @MainActor
+    func ensureHome() async -> Bool {
+        if library.homeArea != nil { return true }
+        isLocating = true
+        defer { isLocating = false }
+        if location.authorization == .notDetermined {
+            location.requestPermission()
+            // Wait for the answer to the system's question, a minute at most.
+            for _ in 0..<600 where location.authorization == .notDetermined {
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
+        guard location.isAuthorized, let fix = await location.currentLocation() else {
+            locationRefused = !location.isAuthorized
+            return false
+        }
+        locationRefused = false
+        library.setHomeArea(HomeArea(center: Coord(fix.coordinate)))
         library.finishOnboarding()
-        screen = .home
-        Task { await loadStreets() }
+        return true
     }
 
     // MARK: Time
@@ -133,8 +151,11 @@ final class AppModel {
 
     func findLoops() {
         guard canStartLoop else { showPaywall = true; return }
-        screen = .loops
-        Task { await planLoops() }
+        Task { @MainActor in
+            guard await ensureHome() else { return }
+            screen = .loops
+            await planLoops()
+        }
     }
 
     /// The refresh button on Loop options: three more loops in other directions.
@@ -195,8 +216,8 @@ final class AppModel {
     /// Returns what to say back.
     @MainActor
     func startLoop(minutes asked: Int) async -> String {
-        guard library.onboarded, library.homeArea != nil else { return "Open Unwalked to set your home area first." }
         guard session == nil else { return "You're already on a walk." }
+        guard await ensureHome() else { return "Unwalked needs your location to plan a loop. Open it and allow location." }
         guard canStartLoop else {
             showPaywall = true
             return "You've used this week's free loops."

@@ -22,8 +22,6 @@ struct RootView: View {
         ZStack {
             Theme.ground.ignoresSafeArea()
             switch model.screen {
-            case .onboarding:
-                OnboardingFlow()
             case .home:
                 HomeScreen()
             case .loops:
@@ -35,7 +33,6 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.screen)
-        .preferredColorScheme(model.isAfterDark && model.screen != .onboarding ? .dark : nil)
         .fullScreenCover(isPresented: $model.showPaywall) {
             PaywallScreen()
         }

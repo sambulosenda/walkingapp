@@ -25,7 +25,7 @@ struct PaywallScreen: View {
                 Spacer()
             }
 
-            BottomSheet(bottomPadding: 22) {
+            BottomSheet(bottomPadding: 22, collapsible: false) {
                 SheetTitle(text: "You have walked both free loops this week").padding(.top, 16)
                 BodyText(text: "Unwalked Plus gives you a fresh loop whenever you want one. Recording and your map stay free, and your next free loop arrives on Monday.")
                     .padding(.top, 8)

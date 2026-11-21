@@ -132,8 +132,7 @@ struct SettingsSheet: View {
                 Button("Delete all walks", role: .destructive) {
                     model.library.reset()
                     dismiss()
-                    model.screen = .onboarding
-                    model.onboardingStep = 1
+                    model.screen = .home
                 }
             } message: {
                 Text("This clears your map, coverage and reports. It can't be undone.")

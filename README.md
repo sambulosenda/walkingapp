@@ -28,7 +28,7 @@ without a purchase.
 
 | Folder | |
 | --- | --- |
-| `Unwalked/Screens` | The v2 screens: onboarding (location, pace, home area), Home (with First run and After dark), Loop options, Walking (with Off the loop, Running late and Report a street), Walk complete, Paywall, Settings |
+| `Unwalked/Screens` | The v2 screens: Home (with First run), the home-area editor, milestones, Loop options, Walking (with Off the loop, Running late and Report a street), Walk complete, Paywall, Settings |
 | `Unwalked/Design` | Colours, type and shared components taken from the v2 designs |
 | `Unwalked/Map` | The map and the layers drawn on it |
 | `Unwalked/Services/Streets` | OpenStreetMap download, street graph and the loop engine |
@@ -51,7 +51,10 @@ without a purchase.
   most new first. Until the streets have downloaded, loops fall back to Apple's walking directions.
 - **New streets**: a stretch of street counts as walked once 90% of it is covered. Coverage is walked street length
   over all street length in your home area. Walks are stored as a ~20 m grid, so the map survives street data changing.
-- **Pace** starts from your onboarding pick and learns from your last five walks.
+- **No onboarding.** The first loop asks for location, and where you are standing becomes home; Settings moves it.
+- **Pace** comes from Apple Health's walking speed if you allow it, then learns from your last five walks.
+- **Milestones** mark streets walked end to end, shares of your area, and distance. They are worked out from your walks, not stored.
+- **Sheets** pull down out of the map's way, and the floating controls use the system's glass. Light and dark follow the phone.
 - **Guidance** follows you along the route: turn cues 20 to 30 m before each turn (two taps and a low tone for left,
   three taps and a high tone for right, then the turn spoken), a new route when you leave the loop by 30 m, and a
   shortcut offer once you would be more than 10% over your time.

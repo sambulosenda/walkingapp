@@ -1,53 +1,10 @@
 import MapKit
 import SwiftUI
 
-struct OnboardingFlow: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        switch model.onboardingStep {
-        case 1: LocationStep()
-        // No pace question: pace comes from Apple Health if the walker lets it, and then from their walks.
-        default: HomeAreaStep()
-        }
-    }
-}
-
-// MARK: - Step 1: location
-
-struct LocationStep: View {
-    @Environment(AppModel.self) private var model
-    @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
-    @State private var asked = false
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            UnwalkedMap(layers: MapLayers(showsUser: model.location.isAuthorized), position: $position, interactive: false)
-            BottomSheet(bottomPadding: 22) {
-                StepLabel(step: 1, of: 2).padding(.top, 16)
-                SheetTitle(text: "Walks that start at your door").padding(.top, 4)
-                BodyText(text: "Unwalked uses your location while you walk, to guide you and fill in your map. Your walks stay on this phone.")
-                    .padding(.top, 8)
-                Button("Allow location") {
-                    asked = true
-                    model.location.requestPermission()
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.top, 20)
-                Button("Not now") { model.onboardingStep = 2 }
-                    .buttonStyle(TextButtonStyle())
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 4)
-            }
-        }
-        .onChange(of: model.location.authorization) { _, status in
-            guard asked, status != .notDetermined else { return }
-            model.onboardingStep = 2
-        }
-    }
-}
-
-// MARK: - Step 2: home area
+// MARK: - Home area
+//
+// There is no onboarding flow any more: location is asked for at the first loop, and home starts
+// where the walker is standing. This is the screen Settings opens to move or resize it.
 
 struct HomeAreaStep: View {
     @Environment(AppModel.self) private var model
@@ -86,20 +43,15 @@ struct HomeAreaStep: View {
                     .coordinateSpace(.named(Self.space))
             }
 
-            BottomSheet {
-                if onDone == nil { StepLabel(step: 2, of: 2).padding(.top, 16) }
-                SheetTitle(text: "This is your home area").padding(.top, onDone == nil ? 4 : 16)
+            BottomSheet(collapsible: false) {
+                SheetTitle(text: "This is your home area").padding(.top, 16)
                 if let area {
                     BodyText(text: "Your coverage counts the streets, about \(area.estimatedStreetCount), inside the circle. Drag its edge to make it bigger or smaller.")
                         .padding(.top, 8)
                         .contentTransition(.numericText())
                     Button("Looks right") {
-                        if let onDone {
-                            model.library.setHomeArea(area)
-                            onDone()
-                        } else {
-                            model.finishOnboarding(area: area)
-                        }
+                        model.library.setHomeArea(area)
+                        onDone?()
                     }
                     .buttonStyle(PrimaryButtonStyle())
                     .padding(.top, 20)
