@@ -28,7 +28,7 @@ struct WalkCompleteScreen: View {
         ZStack(alignment: .bottom) {
             UnwalkedMap(
                 layers: MapLayers(
-                    walked: model.library.walks.dropLast().map(\.path) + [record.path],
+                    walked: model.library.walkedPaths,
                     fresh: Array(summary.newSegments.prefix(shown)),
                     home: model.home
                 ),
@@ -38,6 +38,14 @@ struct WalkCompleteScreen: View {
             VStack {
                 HStack {
                     Spacer()
+                    ShareLink(item: shareImage, preview: SharePreview("My walk on Unwalked", image: shareImage)) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(Theme.text)
+                            .frame(width: 44, height: 44)
+                            .glass(radius: 22)
+                    }
+                    .accessibilityLabel("Share a picture of this walk")
                     GlassIconButton(systemName: "arrow.counterclockwise", label: "Replay the reveal") { play() }
                 }
                 .padding(.horizontal, 16)
@@ -106,6 +114,16 @@ struct WalkCompleteScreen: View {
             play()
         }
         .onDisappear { reveal?.cancel() }
+    }
+
+    /// The walk as a picture: streets only, and nothing near home (F17).
+    private var shareImage: Image {
+        let minutes = Int((record.duration / 60).rounded())
+        return ShareCard.image(
+            walked: [record.path], fresh: summary.newSegments, home: model.home,
+            headline: "\(record.newStreets) new \(record.newStreets == 1 ? "street" : "streets")",
+            detail: "\(minutes) min · \(Format.km(record.distance)) · \(Format.percent(summary.coverageAfter)) of my area walked"
+        )
     }
 
     private var metaLine: String {
