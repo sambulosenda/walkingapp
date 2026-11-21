@@ -100,7 +100,9 @@ struct StreetRouter: Sendable {
         }
         candidates.sort { a, b in a.fits != b.fits ? a.fits : a.score > b.score }
         var picked: [Candidate] = []
-        for candidate in candidates where picked.count < 3 {
+        // A long out-and-back stretch rules a loop out, unless every loop has one: then show the best rather than none.
+        let noLongSpur = candidates.filter { $0.spur <= Self.longestSpur }
+        for candidate in (noLongSpur.isEmpty ? Array(candidates.prefix(1)) : noLongSpur) where picked.count < 3 {
             // Fewer loops is better than one that is well off the time asked for.
             if !picked.isEmpty, candidate.miss > 2 * Self.fitTolerance { continue }
             let tooSimilar = picked.contains { other in
