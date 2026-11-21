@@ -21,4 +21,11 @@ namespace_id = "1001"
 CONTACT_EMAIL = ""
 
 # Tried in order when a tile has to be built.
-OVERPASS_ENDPOINTS = "https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter"
+#
+# Only mirrors reachable FROM a Cloudflare Worker belong here. Probed from inside the Worker
+# on 21 November 2026: overpass.osm.ch answered in 137 ms, while overpass-api.de,
+# overpass.private.coffee and overpass.kumi.systems all timed out, overpass.osm.jp returned
+# 530 and maps.mail.ru 504. overpass-api.de answers a laptop in ~29 s, so this is about where
+# the request comes from, not the query. A mirror that cannot be reached is not kept as a
+# fallback: it would only add its timeout to every failure.
+OVERPASS_ENDPOINTS = "https://overpass.osm.ch/api/interpreter"
