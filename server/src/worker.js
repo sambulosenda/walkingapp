@@ -1,4 +1,5 @@
 import { ZOOM, keyOf, queryFor, pack } from './tiles.js'
+import { privacyPage } from './legal.js'
 
 // Serves street tiles to the Unwalked app.
 //
@@ -17,8 +18,17 @@ const HEADERS = {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
+    if (request.method !== 'GET') return new Response('Not found', { status: 404 })
+
+    // The App Store listing and the paywall link here, so it has to stay up as long as the app is on sale.
+    if (url.pathname === '/privacy' || url.pathname === '/privacy/') {
+      return new Response(privacyPage(env.CONTACT_EMAIL ?? ''), {
+        headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=3600' },
+      })
+    }
+
     const match = url.pathname.match(/^\/v2\/(\d+)\/(\d+)\/(\d+)\.json$/)
-    if (request.method !== 'GET' || !match) return new Response('Not found', { status: 404 })
+    if (!match) return new Response('Not found', { status: 404 })
     const [zoom, x, y] = match.slice(1).map(Number)
     const size = 2 ** ZOOM
     if (zoom !== ZOOM || x >= size || y >= size) return new Response('Not found', { status: 404 })
@@ -65,12 +75,19 @@ async function build(x, y, env) {
         headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'Unwalked-tiles/1' },
         signal: AbortSignal.timeout(28_000),
       })
-      if (!response.ok) continue
+      if (!response.ok) {
+        console.log('overpass refused', endpoint, response.status)
+        continue
+      }
       const data = await response.json()
       // Overpass answers 200 with a remark and no data when it runs out of time.
-      if (!Array.isArray(data.elements) || data.remark) continue
+      if (!Array.isArray(data.elements) || data.remark) {
+        console.log('overpass had no data', endpoint, data.remark ?? 'no elements')
+        continue
+      }
       return JSON.stringify(pack(data.elements))
-    } catch {
+    } catch (error) {
+      console.log('overpass failed', endpoint, String(error))
       continue
     }
   }
