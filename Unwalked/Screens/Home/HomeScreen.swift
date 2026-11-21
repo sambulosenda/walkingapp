@@ -34,7 +34,7 @@ struct HomeScreen: View {
                     SheetTitle(text: "How long have you got?").padding(.top, 16)
                 }
                 MinutePicker().padding(.top, 12)
-                if model.isAfterDark {
+                if model.isAfterDark, model.preferences.lit {
                     Label {
                         Text("After dark, loops prefer well-lit streets")
                     } icon: {

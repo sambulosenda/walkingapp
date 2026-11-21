@@ -4,6 +4,7 @@ import SwiftUI
 struct LoopOptionsScreen: View {
     @Environment(AppModel.self) private var model
     @State private var position: MapCameraPosition = .automatic
+    @State private var addingStop = false
 
     var body: some View {
         let selected = model.selectedLoop
@@ -13,7 +14,8 @@ struct LoopOptionsScreen: View {
                     walked: model.library.walks.map(\.path),
                     loop: selected?.path,
                     fresh: selected?.segments.filter(\.isNew).map(\.path) ?? [],
-                    home: model.home
+                    home: model.home,
+                    via: model.via
                 ),
                 position: $position
             )
@@ -40,6 +42,9 @@ struct LoopOptionsScreen: View {
                 }
                 .padding(.top, 14)
 
+                PreferenceChips().padding(.top, 10)
+                ViaRow(adding: $addingStop).padding(.top, 8)
+
                 VStack(spacing: 8) {
                     if model.isPlanning && model.loops.isEmpty {
                         ForEach(0..<3, id: \.self) { _ in
@@ -52,7 +57,7 @@ struct LoopOptionsScreen: View {
                         BodyText(text: error).frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
                     } else {
                         ForEach(model.loops) { loop in
-                            LoopRow(loop: loop, isSelected: loop.id == selected?.id) {
+                            LoopRow(loop: loop, preferences: model.appliedPreferences, isSelected: loop.id == selected?.id) {
                                 withAnimation(.snappy) { model.selectedLoopID = loop.id }
                             }
                         }
@@ -75,6 +80,7 @@ struct LoopOptionsScreen: View {
                 }
             }
         }
+        .sheet(isPresented: $addingStop) { ViaSearchSheet().environment(model) }
         .onChange(of: model.selectedLoopID) { _, _ in frame() }
         .onChange(of: model.isPlanning) { _, planning in
             // Tell VoiceOver when the loops arrive; nothing else on screen says so aloud.
@@ -101,12 +107,13 @@ struct LoopOptionsScreen: View {
 
 struct LoopRow: View {
     let loop: PlannedLoop
+    var preferences = RoutePreferences.none
     let isSelected: Bool
     let action: () -> Void
 
     var body: some View {
         ChoiceRow(isSelected: isSelected, height: 60, action: action) {
-            TitleSubtitle(title: loop.name, subtitle: loop.metaLine)
+            TitleSubtitle(title: loop.name, subtitle: loop.metaLine(for: preferences))
         } trailing: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(Format.percent(loop.newFraction))
@@ -117,7 +124,87 @@ struct LoopRow: View {
                     .foregroundStyle(Theme.muted)
             }
         }
-        .accessibilityLabel("\(loop.name), \(loop.metaLine), \(Format.percent(loop.newFraction)) new")
+        .accessibilityLabel("\(loop.name), \(loop.metaLine(for: preferences)), \(Format.percent(loop.newFraction)) new")
+    }
+}
+
+/// The stop the loops pass on the way, or the button that adds one (F16).
+struct ViaRow: View {
+    @Environment(AppModel.self) private var model
+    @Binding var adding: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { adding = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin.and.ellipse")
+                        .font(.system(size: 14, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Text(model.via.map { "Via \($0.name)" } ?? "Add a stop on the way")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(Theme.text)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("A café, post box or shop for the loop to pass")
+            if model.via != nil {
+                Button { model.setVia(nil) } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(Theme.chip))
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove the stop")
+            }
+        }
+        .disabled(model.isPlanning)
+    }
+}
+
+/// Route preferences (F12): tap one and the loops are planned again with it.
+struct PreferenceChips: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                chip("Quiet", symbol: "speaker.slash", \.quiet, hint: "Keeps off main roads")
+                chip("Green", symbol: "leaf", \.green, hint: "Goes through parks where it can")
+                chip("Well lit", symbol: "lightbulb", \.lit, hint: "After dark, keeps to lit streets")
+                chip("Step-free", symbol: "figure.roll", \.stepFree, hint: "Never uses steps")
+            }
+            .padding(.horizontal, 20)
+        }
+        .padding(.horizontal, -20)
+        .disabled(model.isPlanning)
+    }
+
+    private func chip(_ label: String, symbol: String, _ preference: WritableKeyPath<RoutePreferences, Bool>,
+                      hint: String) -> some View {
+        let isOn = model.preferences[keyPath: preference]
+        let locked = preference != \.lit && !model.purchases.hasPlus
+        return Button { model.togglePreference(preference) } label: {
+            HStack(spacing: 6) {
+                Image(systemName: locked ? "lock" : symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(label).font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(isOn && !locked ? Theme.onPrimary : Theme.text)
+            .padding(.horizontal, 14)
+            .frame(minHeight: 44)
+            .background(Capsule().fill(isOn && !locked ? Theme.primary : Theme.chip))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityHint(locked ? "Part of Unwalked Plus" : hint)
+        .accessibilityAddTraits(isOn && !locked ? .isSelected : [])
     }
 }
 

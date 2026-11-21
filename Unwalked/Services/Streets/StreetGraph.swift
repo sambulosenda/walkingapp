@@ -16,6 +16,10 @@ struct StreetSegment {
     var besideBigRoad = false
     /// Extra cost after dark: 1 when lit, more when known to be dark or likely to be.
     var darkFactor: Double = 1
+    /// Runs through a park, garden, common or wood, and is not a main road.
+    var isGreen = false
+    /// A flight of steps.
+    var isSteps = false
 }
 
 /// The walkable streets around home, from OpenStreetMap, as junctions joined by segments.
@@ -86,6 +90,8 @@ final class StreetGraph: @unchecked Sendable {
     private struct RawWay {
         var nodes: [Int64]
         var tags: [String: String]
+        /// Runs through green space, as worked out by Overpass or marked on the tile.
+        var green = false
     }
 
     /// Streets from one Overpass answer.
@@ -93,11 +99,13 @@ final class StreetGraph: @unchecked Sendable {
         guard let decoded = try? JSONDecoder().decode(Overpass.self, from: data) else { return nil }
         var coords: [Int64: Coord] = [:]
         var ways: [RawWay] = []
+        // A way that arrives as an id alone is one Overpass found inside green space.
+        let green = Set(decoded.elements.lazy.filter { $0.type == "way" && $0.nodes == nil }.map(\.id))
         for element in decoded.elements {
             if element.type == "node", let lat = element.lat, let lon = element.lon {
                 coords[element.id] = Coord(lat: lat, lon: lon)
             } else if element.type == "way", let ids = element.nodes, let tags = element.tags {
-                ways.append(RawWay(nodes: ids, tags: tags))
+                ways.append(RawWay(nodes: ids, tags: tags, green: green.contains(element.id)))
             }
         }
         self.init(coords: coords, ways: ways, center: center, radius: radius)
@@ -122,19 +130,19 @@ final class StreetGraph: @unchecked Sendable {
                 guard way.nodes.allSatisfy(tile.ids.indices.contains), way.nodes.contains(where: { near[$0] }) else { continue }
                 seen.insert(way.id)
                 for i in way.nodes { coords[tile.ids[i]] = Coord(lat: tile.lat[i], lon: tile.lon[i]) }
-                ways.append(RawWay(nodes: way.nodes.map { tile.ids[$0] }, tags: way.tags))
+                ways.append(RawWay(nodes: way.nodes.map { tile.ids[$0] }, tags: way.tags, green: way.tags["green"] == "yes"))
             }
         }
         self.init(coords: coords, ways: ways, center: center, radius: radius)
     }
 
     private init?(coords: [Int64: Coord], ways raw: [RawWay], center: Coord, radius: CLLocationDistance) {
-        var ways: [(nodes: [Int64], name: String?, rule: WayRule)] = []
+        var ways: [(nodes: [Int64], name: String?, rule: WayRule, green: Bool)] = []
         // Big roads, walkable or not, kept to find the paths that run beside them.
         var bigRoads: [(nodes: [Int64], reach: Double, factor: Double)] = []
         for way in raw where way.nodes.count > 1 {
             if let big = WayRule.bigRoad(tags: way.tags) { bigRoads.append((way.nodes, big.reach, big.factor)) }
-            if let rule = WayRule(tags: way.tags) { ways.append((way.nodes, way.tags["name"] ?? way.tags["ref"], rule)) }
+            if let rule = WayRule(tags: way.tags) { ways.append((way.nodes, way.tags["name"] ?? way.tags["ref"], rule, way.green)) }
         }
 
         // A node is a junction when more than one way uses it, or a way starts or ends there.
@@ -167,7 +175,8 @@ final class StreetGraph: @unchecked Sendable {
                 if length > 0.5, let a = coords[from] {
                     segments.append(StreetSegment(from: node(from, a), to: node(id, c), path: path, length: length,
                                                   name: way.name, factor: way.rule.factor, isMain: way.rule.isMain,
-                                                  darkFactor: way.rule.darkFactor))
+                                                  darkFactor: way.rule.darkFactor,
+                                                  isGreen: way.green && !way.rule.isMain, isSteps: way.rule.isSteps))
                 }
                 startID = id
                 path = [c]
@@ -545,6 +554,7 @@ struct WayRule {
     var isMain: Bool
     /// Extra cost after dark, from OpenStreetMap's `lit` tag.
     var darkFactor: Double
+    var isSteps: Bool
 
     /// For a big road: how close a path must run to count as beside it, in metres,
     /// and how much that path should be avoided. Nil for ordinary streets.
@@ -615,6 +625,7 @@ struct WayRule {
         }
         self.factor = factor
         self.isMain = isMain
+        isSteps = kind == "steps"
         darkFactor = Self.darkFactor(kind: kind, lit: tags["lit"])
     }
 

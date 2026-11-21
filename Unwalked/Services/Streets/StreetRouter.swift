@@ -8,8 +8,8 @@ struct StreetRouter: Sendable {
     let walked: [Bool]
     let blocked: [Bool]
     let metresPerSecond: Double
-    /// After dark: lit streets are preferred.
-    let prefersLit: Bool
+    /// What the walker would rather their loops were like, already settled for the hour and their plan.
+    let preferences: RoutePreferences
 
     /// Longest stretch a loop may walk out and back along.
     static let longestSpur: CLLocationDistance = 150
@@ -18,12 +18,13 @@ struct StreetRouter: Sendable {
     /// Metres added to every stretch when choosing a route.
     static let hopCost = 12.0
 
-    init(graph: StreetGraph, coverage: Coverage, reports: [StreetReport], metresPerSecond: Double, prefersLit: Bool = false) {
+    init(graph: StreetGraph, coverage: Coverage, reports: [StreetReport], metresPerSecond: Double,
+         preferences: RoutePreferences = .none) {
         self.graph = graph
         walked = graph.walked(in: coverage)
         blocked = graph.blocked(by: reports)
         self.metresPerSecond = metresPerSecond
-        self.prefersLit = prefersLit
+        self.preferences = preferences
     }
 
     struct Candidate {
@@ -36,6 +37,12 @@ struct StreetRouter: Sendable {
         var mainShare: Double
         /// After dark only: share of the loop on ways tagged as unlit. Zero by day.
         var unlitShare = 0.0
+        /// Share of the loop through parks, gardens, commons and woods.
+        var greenShare = 0.0
+        /// How hard main roads count against a loop: more when the walker asked for quiet.
+        var mainWeight = 1.5
+        /// How much green space counts for a loop: nothing unless the walker asked for it.
+        var greenWeight = 0.0
         /// How far the length is from the target, as a share of it.
         var miss = 0.0
         var bearing: Double?
@@ -47,7 +54,7 @@ struct StreetRouter: Sendable {
 
         var fits: Bool { miss <= StreetRouter.fitTolerance && spur <= StreetRouter.longestSpur }
         var score: Double {
-            loop.newFraction - 1.5 * mainShare - 1.5 * unlitShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
+            loop.newFraction - mainWeight * mainShare + greenWeight * greenShare - 1.5 * unlitShare - 2 * repeatShare - 2 * miss - doubledShare - 0.05 * Double(reversals)
                 - 0.03 * turnsPerKm
         }
         /// Turns per kilometre: a loop that turns every hundred metres is tiring to follow.
@@ -57,7 +64,10 @@ struct StreetRouter: Sendable {
     // MARK: Loops
 
     /// Up to three loops of about `minutes`, the one with the most new streets first.
-    func loops(from home: Coord, minutes: Int, rotation: Double) -> [PlannedLoop] {
+    ///
+    /// With `via`, every loop goes out through that place first and one turning point after it, so
+    /// the stop is on the way rather than a detour bolted on (F16).
+    func loops(from home: Coord, minutes: Int, rotation: Double, via: Coord? = nil) -> [PlannedLoop] {
         let target = Double(minutes) * 60 * metresPerSecond
         var candidates: [Candidate] = []
         // Twelve directions, each as a narrow and a wide triangle. Planning is quick, so try plenty.
@@ -66,13 +76,16 @@ struct StreetRouter: Sendable {
             for spread in [25.0, 45.0] {
                 // Home and two turning points make a triangle; streets wander about 1.3 times the straight line.
                 var radius = target / ((2 + 2 * sin(spread * .pi / 180)) * 1.3)
+                // The second spread would only repeat the first: with a stop there is one turning point, not two.
+                if via != nil, spread != 25 { continue }
                 var best: Candidate?
                 // The largest radius known to give too short a loop, and the smallest known to give too long a one.
                 var tooShort: Double?, tooLong: Double?
                 for _ in 0..<10 {
                     let a = Geo.destination(from: home, bearing: bearing - spread, distance: radius)
                     let b = Geo.destination(from: home, bearing: bearing + spread, distance: radius)
-                    guard var candidate = route(home: home, through: [a, b], bearing: bearing) else { break }
+                    let through = via.map { [$0, Geo.destination(from: home, bearing: bearing, distance: radius)] } ?? [a, b]
+                    guard var candidate = route(home: home, through: through, bearing: bearing) else { break }
                     let ratio = candidate.loop.distance / target
                     candidate.miss = abs(ratio - 1)
                     if candidate.miss < (best?.miss ?? .infinity) { best = candidate }
@@ -96,7 +109,7 @@ struct StreetRouter: Sendable {
         // Polish the most promising: let each turning point slide to a nearby junction when that
         // gives a cleaner loop of the same length.
         for i in candidates.indices.prefix(8) {
-            candidates[i] = polished(candidates[i], home: home, target: target)
+            candidates[i] = polished(candidates[i], home: home, target: target, keepsFirst: via != nil)
         }
         candidates.sort { a, b in a.fits != b.fits ? a.fits : a.score > b.score }
         var picked: [Candidate] = []
@@ -133,9 +146,14 @@ struct StreetRouter: Sendable {
     }
 
     /// Tries the junctions around each of a loop's two turning points and keeps the best-scoring loop.
-    private func polished(_ candidate: Candidate, home: Coord, target: CLLocationDistance) -> Candidate {
+    /// With `keepsFirst`, the first turning point is a stop the walker chose, and stays where it is.
+    private func polished(_ candidate: Candidate, home: Coord, target: CLLocationDistance, keepsFirst: Bool = false) -> Candidate {
         guard candidate.loop.waypoints.count == 2, let homeNode = graph.nearestNode(to: home) else { return candidate }
-        let options = candidate.loop.waypoints.map { graph.nearestNodes(to: $0, count: 4, minLinks: 3, within: 220) }
+        var options = candidate.loop.waypoints.map { graph.nearestNodes(to: $0, count: 4, minLinks: 3, within: 220) }
+        if keepsFirst {
+            guard let stop = graph.nearestNode(to: candidate.loop.waypoints[0]) else { return candidate }
+            options[0] = [stop]
+        }
         var best = candidate
         for a in options[0] {
             for b in options[1] where a != b {
@@ -154,9 +172,13 @@ struct StreetRouter: Sendable {
     private func cost(_ segment: Int, used: Set<Int>) -> Double {
         if blocked[segment] { return .infinity }
         let s = graph.segments[segment]
+        // Step-free is a hard rule: for a pram or a wheelchair, one flight of steps ends the walk.
+        if preferences.stepFree, s.isSteps { return .infinity }
         // A few metres per stretch, so the route prefers staying on a street to weaving between short ones.
         var c = (s.length + Self.hopCost) * s.factor
-        if prefersLit { c *= s.darkFactor }
+        if preferences.lit { c *= s.darkFactor }
+        if preferences.quiet, s.isMain || s.besideBigRoad { c *= 2.5 }
+        if preferences.green, s.isGreen { c *= 0.55 }
         if walked[segment] { c *= 1.6 }
         // Coming back along a street already in this loop is a last resort.
         if used.contains(segment) { c *= 6 }
@@ -182,6 +204,46 @@ struct StreetRouter: Sendable {
         return assemble(home: home, origin: start ?? home, stops: stops, waypoints: waypoints, bearing: bearing)
     }
 
+    /// A way home from `start` that is about `target` metres long: what is left of a walk after the
+    /// walker asks, part-way round, for it to be shorter or longer (F13).
+    ///
+    /// Nothing is shorter than going straight home, so a target below that returns the direct way.
+    /// Otherwise it tries one turning point in each of twelve directions, sliding each in or out
+    /// until the way home through it is the right length, and keeps the best-scoring.
+    func wayHome(home: Coord, from start: Coord, target: CLLocationDistance) -> Candidate? {
+        guard var direct = route(home: home, from: start, through: []) else { return nil }
+        direct.miss = target > 0 ? abs(direct.loop.distance / target - 1) : 0
+        if target <= direct.loop.distance * (1 + Self.fitTolerance) { return direct }
+
+        let middle = Coord(lat: (start.lat + home.lat) / 2, lon: (start.lon + home.lon) / 2)
+        let apart = start.distance(to: home)
+        var best = direct
+        for k in 0..<12 {
+            let bearing = Double(k) * 30
+            // Start and home are the two ends; the turning point sits out to one side of the line between them.
+            let straight = target / 1.3
+            var reach = max(80, (max(0, straight * straight - apart * apart)).squareRoot() / 2)
+            var tooShort: Double?, tooLong: Double?
+            var found: Candidate?
+            for _ in 0..<8 {
+                let turning = Geo.destination(from: middle, bearing: bearing, distance: reach)
+                guard var candidate = route(home: home, from: start, through: [turning]) else { break }
+                let ratio = candidate.loop.distance / target
+                candidate.miss = abs(ratio - 1)
+                if candidate.miss < (found?.miss ?? .infinity) { found = candidate }
+                if candidate.miss < 0.02 { break }
+                if ratio < 1 { tooShort = max(tooShort ?? reach, reach) } else { tooLong = min(tooLong ?? reach, reach) }
+                if let tooShort, let tooLong, tooShort < tooLong {
+                    reach = (tooShort + tooLong) / 2
+                } else {
+                    reach /= 1 + (ratio - 1) * 0.8
+                }
+            }
+            if let found, found.fits != best.fits ? found.fits : found.score > best.score { best = found }
+        }
+        return best
+    }
+
     /// Joins the junctions in `stops` by the cheapest streets and describes the result.
     private func assemble(home: Coord, origin: Coord, stops: [Int], waypoints: [Coord], bearing: Double?) -> Candidate? {
         var hops: [StreetGraph.Hop] = []
@@ -198,12 +260,12 @@ struct StreetRouter: Sendable {
         guard !hops.isEmpty else { return nil }
 
         var path: [Coord] = []
-        var steps: [TurnStep] = []
+        var turns: [TurnStep] = []
         var segments: [LoopSegment] = []
         if origin.distance(to: graph.nodes[stops[0]]) > 3 { path.append(origin) }
 
         var seen = Set<Int>()
-        var spur = 0.0, run = 0.0, repeated = 0.0, main = 0.0, unlit = 0.0, total = 0.0
+        var spur = 0.0, run = 0.0, repeated = 0.0, main = 0.0, unlit = 0.0, green = 0.0, steps = 0.0, total = 0.0
         var previous: [Coord]?
         var previousSegment: Int?
         var sharpTurns = 0
@@ -216,7 +278,7 @@ struct StreetRouter: Sendable {
                 : previous.flatMap { Self.turn(from: $0, to: oriented, streets: graph.links[junction].count) }
             if let previous, Self.isSharp(from: previous, to: oriented) { sharpTurns += 1 }
             if let kind {
-                steps.append(TurnStep(kind: kind, street: s.name, at: oriented[0], pathIndex: max(0, path.count - 1)))
+                turns.append(TurnStep(kind: kind, street: s.name, at: oriented[0], pathIndex: max(0, path.count - 1)))
             }
             previousSegment = hop.segment
             path.append(contentsOf: path.last == oriented[0] ? Array(oriented.dropFirst()) : oriented)
@@ -232,26 +294,33 @@ struct StreetRouter: Sendable {
                 run = 0
             }
             if s.isMain || s.besideBigRoad { main += s.length }
-            if prefersLit, s.darkFactor >= 3 { unlit += s.length }
+            if preferences.lit, s.darkFactor >= 3 { unlit += s.length }
+            if s.isGreen { green += s.length }
+            if s.isSteps { steps += s.length }
             total += s.length
             segments.append(LoopSegment(path: oriented, street: s.name, isNew: !again && !walked[hop.segment], length: s.length))
             previous = oriented
         }
         if let last = path.last, last.distance(to: home) > 3 { path.append(home) }
-        steps = Self.calmed(steps, on: path)
-        steps.append(TurnStep(kind: .arrive, street: nil, at: path[path.count - 1], pathIndex: path.count - 1))
+        turns = Self.calmed(turns, on: path)
+        turns.append(TurnStep(kind: .arrive, street: nil, at: path[path.count - 1], pathIndex: path.count - 1))
 
         let distance = Geo.length(of: path)
         let direction = bearing.map(LoopPlanner.compass) ?? "Back"
         let via = segments.first { $0.isNew && $0.street != nil }?.street ?? segments.compactMap(\.street).first
         let name = via.map { "\(direction), via \($0)" } ?? "\(direction) loop"
-        let loop = PlannedLoop(name: name, home: home, waypoints: waypoints, path: path, steps: steps,
+        var loop = PlannedLoop(name: name, home: home, waypoints: waypoints, path: path, steps: turns,
                                segments: segments, distance: distance, duration: distance / metresPerSecond)
+        loop.greenFraction = total > 0 ? green / total : 0
+        loop.mainFraction = total > 0 ? main / total : 0
+        loop.stepsMetres = steps
         return Candidate(loop: loop, used: used, spur: spur,
                          repeatShare: total > 0 ? repeated / total : 0, mainShare: total > 0 ? main / total : 0,
                          unlitShare: total > 0 ? unlit / total : 0,
+                         greenShare: total > 0 ? green / total : 0,
+                         mainWeight: preferences.quiet ? 3 : 1.5, greenWeight: preferences.green ? 0.8 : 0,
                          bearing: bearing, doubledShare: Self.doubledShare(of: path, home: home),
-                         reversals: steps.filter { $0.kind == .uTurn }.count + sharpTurns)
+                         reversals: turns.filter { $0.kind == .uTurn }.count + sharpTurns)
     }
 
     /// Share of a path that runs within 60 m of a part of itself more than 250 m further along:

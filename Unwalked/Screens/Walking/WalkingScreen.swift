@@ -8,6 +8,7 @@ struct WalkingScreen: View {
 
     @State private var position: MapCameraPosition = .userLocation(followsHeading: true, fallback: .automatic)
     @State private var reporting = false
+    @State private var resizing = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -49,12 +50,21 @@ struct WalkingScreen: View {
                         LateCard(offer: offer, session: session)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
+                    if resizing {
+                        ResizeCard(session: session) { resizing = false }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     WalkToolbar(session: session, onReport: { withAnimation(.snappy) { reporting = true } },
+                                onResize: {
+                                    // Changing a walk part-way round is part of Plus.
+                                    if model.purchases.hasPlus { resizing.toggle() } else { model.showPaywall = true }
+                                },
                                 onEnd: { model.endWalk() })
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 8)
                 .animation(.snappy, value: session.lateOffer)
+                .animation(.snappy, value: resizing)
             }
         }
         .animation(.snappy, value: reporting)
@@ -87,23 +97,36 @@ struct WalkingScreen: View {
 struct WalkToolbar: View {
     let session: WalkSession
     let onReport: () -> Void
+    /// Called when the walker taps the time left, to make the walk shorter or longer.
+    var onResize: () -> Void = {}
     /// Called once the walker confirms ending the walk.
     let onEnd: () -> Void
     @State private var confirmEnd = false
 
     var body: some View {
         HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("\(session.minutesLeft) min left")
-                    .font(.rounded(.title2))
-                    .foregroundStyle(Theme.text)
-                    .contentTransition(.numericText())
-                Text(session.statusLine)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.muted)
+            Button(action: onResize) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 6) {
+                        Text("\(session.minutesLeft) min left")
+                            .font(.rounded(.title2))
+                            .foregroundStyle(Theme.text)
+                            .contentTransition(.numericText())
+                        Image(systemName: "plusminus")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.muted)
+                            .accessibilityHidden(true)
+                    }
+                    Text(session.statusLine)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.muted)
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
             .accessibilityElement(children: .combine)
+            .accessibilityHint("Makes this walk shorter or longer")
 
             RoundIconButton(systemName: "flag", label: "Report a problem with this street",
                             fill: Theme.controlTint, action: onReport)
@@ -123,6 +146,54 @@ struct WalkToolbar: View {
         .padding(.vertical, 8)
         .frame(minHeight: 72)
         .glass(radius: 28)
+    }
+}
+
+/// Shorter or longer, part-way round (F13).
+struct ResizeCard: View {
+    let session: WalkSession
+    let onClose: () -> Void
+    @State private var failed: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Change this walk")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Theme.text)
+            Text(failed ?? "Plans a new way home from where you are now.")
+                .font(.subheadline)
+                .foregroundStyle(Theme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+            HStack(spacing: 8) {
+                Button("\(WalkSession.resizeStep) min shorter") { change(by: -WalkSession.resizeStep) }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .disabled(!session.canShorten)
+                    .opacity(session.canShorten ? 1 : 0.45)
+                Button("\(WalkSession.resizeStep) min longer") { change(by: WalkSession.resizeStep) }
+                    .buttonStyle(SecondaryButtonStyle())
+            }
+            .disabled(session.isRerouting)
+            .padding(.top, 14)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Theme.sheet)
+                .shadow(color: Palette.ink.opacity(0.16), radius: 12, y: 8)
+        )
+    }
+
+    private func change(by minutes: Int) {
+        failed = nil
+        Task {
+            if await session.resize(by: minutes) != nil {
+                onClose()
+            } else {
+                failed = minutes > 0 ? "Couldn't find a longer way home from here." : "Couldn't find a shorter way home from here."
+            }
+        }
     }
 }
 

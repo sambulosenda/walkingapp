@@ -16,6 +16,8 @@ struct MapLayers {
     /// The street being reported, red dashes.
     var reported: [Coord]?
     var home: Coord?
+    /// A stop the loop passes on the way.
+    var via: ViaPoint?
     var showsUser = false
     var homeArea: HomeArea?
 }
@@ -74,6 +76,16 @@ struct UnwalkedMap: View {
                     HomeMarker()
                 }
                 .annotationTitles(.hidden)
+            }
+
+            if let via = layers.via {
+                Annotation(via.name, coordinate: via.coord.cl, anchor: .bottom) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, Palette.ink)
+                        .accessibilityHidden(true)
+                }
             }
 
             if layers.showsUser {

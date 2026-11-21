@@ -9,6 +9,14 @@ const KEEP = [
   'sidewalk', 'sidewalk:both', 'sidewalk:left', 'sidewalk:right', 'lit',
 ]
 
+/** Parks, gardens, commons and woods: a way that runs through one is marked `green`. */
+const GREEN = [
+  'way["leisure"~"^(park|garden|nature_reserve|common)$"]',
+  'relation["leisure"~"^(park|garden|nature_reserve|common)$"]',
+  'way["landuse"~"^(forest|meadow|grass|recreation_ground|village_green)$"]',
+  'way["natural"~"^(wood|heath|grassland|scrub)$"]',
+]
+
 export function tileOf(lat, lon, zoom = ZOOM) {
   const n = 2 ** zoom
   const rad = (lat * Math.PI) / 180
@@ -25,14 +33,18 @@ export function boundsOf(x, y, zoom = ZOOM) {
 }
 
 export function keyOf(x, y, zoom = ZOOM) {
-  return `v2/${zoom}/${x}/${y}.json`
+  return `v3/${zoom}/${x}/${y}.json`
 }
 
 /** The Overpass query for every street with a point inside a tile. */
 export function queryFor(x, y, zoom = ZOOM) {
   const b = boundsOf(x, y, zoom)
   const box = [b.south, b.west, b.north, b.east].map((v) => v.toFixed(6)).join(',')
-  return `[out:json][timeout:25];way["highway"](${box});out body;>;out skel qt;`
+  // The streets in full, then the ids alone of those that run through green space. Overpass works
+  // out which are inside a park, so no park outline has to reach the phone.
+  const green = GREEN.map((g) => `${g}(${box});`).join('')
+  return `[out:json][timeout:25];way["highway"](${box});out body;>;out skel qt;` +
+    `(${green});map_to_area->.g;way["highway"](area.g)(${box});out ids;`
 }
 
 /**
@@ -75,6 +87,12 @@ export function pack(elements, tile) {
     return i
   }
 
+  // Ways that arrive as an id alone are the ones Overpass found inside green space.
+  const green = new Set()
+  for (const e of elements) {
+    if (e.type === 'way' && !Array.isArray(e.nodes)) green.add(e.id)
+  }
+
   const ways = []
   const seen = new Set()
   for (const e of elements) {
@@ -86,6 +104,7 @@ export function pack(elements, tile) {
     seen.add(e.id)
     const tags = {}
     for (const k of KEEP) if (e.tags[k] !== undefined) tags[k] = e.tags[k]
+    if (green.has(e.id)) tags.green = 'yes'
     ways.push({ id: e.id, nodes: known.map(place), tags })
   }
   return { ids, lat, lon, ways }

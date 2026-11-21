@@ -13,15 +13,15 @@ struct LoopPlanner {
     var metresPerSecond: Double
     /// The streets around home, when they have been downloaded.
     var streets: StreetGraph?
-    /// After dark: plan on lit streets where there is a choice. Apple's directions fallback ignores it.
-    var prefersLit = false
+    /// What the walker would rather their loops were like. Apple's directions fallback ignores it.
+    var preferences = RoutePreferences.none
 
     /// Runs street-graph work off the main thread.
     private func onStreets<T: Sendable>(_ work: @escaping @Sendable (StreetRouter) -> T) async -> T? {
         guard let streets else { return nil }
-        let coverage = coverage, reports = reports, speed = metresPerSecond, lit = prefersLit
+        let coverage = coverage, reports = reports, speed = metresPerSecond, preferences = preferences
         return await Task.detached(priority: .userInitiated) {
-            work(StreetRouter(graph: streets, coverage: coverage, reports: reports, metresPerSecond: speed, prefersLit: lit))
+            work(StreetRouter(graph: streets, coverage: coverage, reports: reports, metresPerSecond: speed, preferences: preferences))
         }.value
     }
 
@@ -37,8 +37,23 @@ struct LoopPlanner {
     /// Attempts at resizing a loop to fit. Each costs three directions requests, which Apple rate-limits.
     private static let fitPasses = 3
 
-    func loops(from home: Coord, minutes: Int, rotation: Double = 0) async throws -> [PlannedLoop] {
-        if let planned = await onStreets({ $0.loops(from: home, minutes: minutes, rotation: rotation) }), !planned.isEmpty {
+    enum ViaError: LocalizedError {
+        case tooFar(String, Int)
+        var errorDescription: String? {
+            switch self {
+            case .tooFar(let name, let minutes): "\(name) is too far for a \(minutes)-minute loop. Pick a nearer stop or a longer walk."
+            }
+        }
+    }
+
+    func loops(from home: Coord, minutes: Int, rotation: Double = 0, via: ViaPoint? = nil) async throws -> [PlannedLoop] {
+        let stop = via?.coord
+        if let planned = await onStreets({ $0.loops(from: home, minutes: minutes, rotation: rotation, via: stop) }), !planned.isEmpty {
+            // The loop still has to close in the time asked for (F16): a stop that makes every loop run
+            // well over is refused, not quietly turned into a longer walk.
+            if let via, planned.allSatisfy({ abs(Double($0.minutes) / Double(minutes) - 1) > 0.15 }) {
+                throw ViaError.tooFar(via.name, minutes)
+            }
             return planned
         }
         let target = Double(minutes) * 60 * metresPerSecond
@@ -46,7 +61,7 @@ struct LoopPlanner {
 
         let found = await withTaskGroup(of: PlannedLoop?.self) { group in
             for bearing in bearings {
-                group.addTask { try? await self.loop(from: home, bearing: bearing, target: target) }
+                group.addTask { try? await self.loop(from: home, bearing: bearing, target: target, via: stop) }
             }
             var out: [PlannedLoop] = []
             for await loop in group { if let loop { out.append(loop) } }
@@ -56,7 +71,7 @@ struct LoopPlanner {
         return found.sorted { $0.newFraction > $1.newFraction }
     }
 
-    private func loop(from home: Coord, bearing: Double, target: CLLocationDistance) async throws -> PlannedLoop? {
+    private func loop(from home: Coord, bearing: Double, target: CLLocationDistance, via: Coord? = nil) async throws -> PlannedLoop? {
         let spread = 35.0
         var radius = target / ((2 + 2 * sin(spread * .pi / 180)) * Self.detour)
         var best: PlannedLoop?
@@ -64,7 +79,7 @@ struct LoopPlanner {
         for _ in 0..<Self.fitPasses {
             let a = Geo.destination(from: home, bearing: bearing - spread, distance: radius)
             let b = Geo.destination(from: home, bearing: bearing + spread, distance: radius)
-            guard let loop = try await build(home: home, through: [a, b], bearing: bearing) else { return best }
+            guard let loop = try await build(home: home, through: via.map { [$0, b] } ?? [a, b], bearing: bearing) else { return best }
             if crossesReport(loop.path) { return best }
             let error = loop.distance / target
             let miss = abs(error - 1)
@@ -114,6 +129,13 @@ struct LoopPlanner {
         let name = via.map { "\(direction), via \($0)" } ?? "\(direction) loop"
         return PlannedLoop(name: name, home: home, waypoints: waypoints, path: path, steps: steps,
                            segments: segments, distance: distance, duration: distance / metresPerSecond)
+    }
+
+    /// A way home from where the walker is now that takes about `target` metres (F13).
+    /// Needs the street graph: Apple's directions cannot be asked for a walk of a given length.
+    func wayHome(from here: Coord, home: Coord, target: CLLocationDistance) async -> PlannedLoop? {
+        guard let planned = await onStreets({ $0.wayHome(home: home, from: here, target: target)?.loop }) else { return nil }
+        return planned
     }
 
     /// The shortest walk home from where the walker is now.

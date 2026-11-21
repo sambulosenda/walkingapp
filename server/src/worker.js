@@ -32,7 +32,7 @@ export default {
     }
 
 
-    const match = url.pathname.match(/^\/v2\/(\d+)\/(\d+)\/(\d+)\.json$/)
+    const match = url.pathname.match(/^\/v3\/(\d+)\/(\d+)\/(\d+)\.json$/)
     if (!match) return new Response('Not found', { status: 404 })
     const [zoom, x, y] = match.slice(1).map(Number)
     const size = 2 ** ZOOM
