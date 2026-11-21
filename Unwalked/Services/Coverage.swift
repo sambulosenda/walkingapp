@@ -3,9 +3,13 @@ import Foundation
 
 /// Tracks which bits of street the walker has covered as a set of ~20 m grid cells.
 ///
-/// This is a stand-in for real street matching: it does not know where streets are,
-/// so coverage is walked cells over an estimate of street cells in the home area.
-/// Swap `estimatedStreetCells` for a count from OpenStreetMap once street data is wired in.
+/// The grid is the record of where someone has walked, kept apart from the streets so it
+/// survives the street data changing underneath it.
+///
+/// It does not know where streets are, so `fraction(in:)` can only divide by an estimate.
+/// That is a fallback, used until the streets have downloaded: the percentage the app shows
+/// comes from `StreetGraph.coverage(of:in:)`, which is walked street length over real street
+/// length. See `WalkLibrary.coverageFraction`.
 struct Coverage: Codable, Equatable {
     private(set) var cells: Set<Cell> = []
 
@@ -51,11 +55,13 @@ struct Coverage: Codable, Equatable {
         cells.lazy.filter { Self.center(of: $0).distance(to: area.center) <= area.radius }.count
     }
 
-    /// About 15 km of street per km², at one cell per 20 m.
+    /// About 15 km of street per km², at one cell per 20 m. Only for `fraction(in:)`.
     static func estimatedStreetCells(in area: HomeArea) -> Int {
         max(1, Int(area.areaKm2 * 15_000 / 20))
     }
 
+    /// A rough coverage figure for before the streets are in. `WalkLibrary.coverageFraction`
+    /// prefers the real one and only falls back to this.
     func fraction(in area: HomeArea) -> Double {
         min(1, Double(walkedCells(in: area)) / Double(Self.estimatedStreetCells(in: area)))
     }
