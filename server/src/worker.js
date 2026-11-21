@@ -27,6 +27,7 @@ export default {
       })
     }
 
+
     const match = url.pathname.match(/^\/v2\/(\d+)\/(\d+)\/(\d+)\.json$/)
     if (!match) return new Response('Not found', { status: 404 })
     const [zoom, x, y] = match.slice(1).map(Number)
@@ -79,10 +80,23 @@ async function build(x, y, env) {
         console.log('overpass refused', endpoint, response.status)
         continue
       }
+      // A broken Overpass answers 200 with an HTML error page, which is not a tile.
+      const type = response.headers.get('content-type') ?? ''
+      if (!type.includes('json')) {
+        console.log('overpass sent', endpoint, type || 'no content-type')
+        continue
+      }
       const data = await response.json()
       // Overpass answers 200 with a remark and no data when it runs out of time.
       if (!Array.isArray(data.elements) || data.remark) {
         console.log('overpass had no data', endpoint, data.remark ?? 'no elements')
+        continue
+      }
+      // An empty answer is never saved. A mirror whose backend is mid-update returns one for
+      // streets that plainly exist, and a tile saved empty would tell every phone there are no
+      // streets here until it expired. Re-asking each time costs far less than that.
+      if (data.elements.length === 0) {
+        console.log('overpass returned nothing', endpoint)
         continue
       }
       return JSON.stringify(pack(data.elements))
