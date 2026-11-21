@@ -38,7 +38,7 @@ struct HomeScreen: View {
                 if firstRun {
                     SheetTitle(text: "Every street here is unwalked").padding(.top, 16)
                     BodyText(text: model.library.homeArea == nil
-                             ? "Pick a time. Your first loop starts from where you are now, and that becomes home. You can move it in Settings."
+                             ? "Your first loop starts from where you are now."
                              : "Pick a time. Your first loop starts at your door.").padding(.top, 4)
                 } else {
                     SheetTitle(text: "How long have you got?").padding(.top, 16)
@@ -114,7 +114,7 @@ struct CoveragePill: View {
     }
 }
 
-/// The big minutes readout with − and + and the tick ruler beneath it.
+/// The big minutes readout with − and +, and the usual times beneath it.
 struct MinutePicker: View {
     @Environment(AppModel.self) private var model
     @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 64
@@ -147,8 +147,19 @@ struct MinutePicker: View {
                     .disabled(model.minutes >= AppModel.minuteRange.upperBound)
             }
 
-            TickRuler(value: model.minutes) { picked in
-                withAnimation(.snappy) { model.minutes = picked }
+            // The times people actually have, one tap each. − and + reach everything between.
+            HStack(spacing: 8) {
+                ForEach([20, 40, 60, 90], id: \.self) { minutes in
+                    let isOn = model.minutes == minutes
+                    Button("\(minutes)") { withAnimation(.snappy) { model.minutes = minutes } }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(isOn ? Theme.onPrimary : Theme.text)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .background(Capsule().fill(isOn ? Theme.primary : Theme.chip))
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(minutes) minutes")
+                        .accessibilityAddTraits(isOn ? .isSelected : [])
+                }
             }
         }
         .sensoryFeedback(.selection, trigger: model.minutes)
@@ -156,39 +167,5 @@ struct MinutePicker: View {
 
     private func step(_ delta: Int) {
         withAnimation(.snappy) { model.stepMinutes(by: delta) }
-    }
-}
-
-/// The ruler under the minutes. Drag along it to scrub the time.
-struct TickRuler: View {
-    let value: Int
-    var onScrub: ((Int) -> Void)?
-
-    var body: some View {
-        GeometryReader { geo in
-            ticks
-                .contentShape(Rectangle())
-                .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                    let f = min(1, max(0, drag.location.x / geo.size.width))
-                    let range = AppModel.minuteRange
-                    let raw = Double(range.lowerBound) + f * Double(range.upperBound - range.lowerBound)
-                    let snapped = Int((raw / 5).rounded()) * 5
-                    if snapped != value { onScrub?(snapped) }
-                })
-        }
-        .frame(height: 20)
-        .accessibilityHidden(true)
-    }
-
-    private var ticks: some View {
-        HStack(alignment: .bottom) {
-            ForEach(Array(stride(from: 15, through: 120, by: 5)), id: \.self) { m in
-                Capsule()
-                    .fill(m <= value ? Theme.text : Theme.tickIdle)
-                    .frame(width: 3, height: m % 15 == 0 ? 20 : 11)
-                if m < 120 { Spacer(minLength: 0) }
-            }
-        }
-        .frame(height: 20)
     }
 }

@@ -126,6 +126,7 @@ struct WalkCompleteScreen: View {
             play()
         }
         .onDisappear { reveal?.cancel() }
+        .sensoryFeedback(.success, trigger: grown) { _, now in now }
     }
 
     /// The walk as a picture: streets only, and nothing near home (F17).

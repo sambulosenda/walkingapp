@@ -4,7 +4,7 @@ import SwiftUI
 struct LoopOptionsScreen: View {
     @Environment(AppModel.self) private var model
     @State private var position: MapCameraPosition = .automatic
-    @State private var addingStop = false
+    @State private var showingOptions = false
 
     var body: some View {
         let selected = model.selectedLoop
@@ -13,11 +13,13 @@ struct LoopOptionsScreen: View {
                 layers: MapLayers(
                     walked: model.library.walkedPaths,
                     loop: selected?.path,
+                    others: model.loops.filter { $0.id != selected?.id }.map(\.path),
                     fresh: selected?.segments.filter(\.isNew).map(\.path) ?? [],
                     home: model.home,
                     via: model.via
                 ),
-                position: $position
+                position: $position,
+                onTap: pick
             )
 
             VStack {
@@ -42,8 +44,7 @@ struct LoopOptionsScreen: View {
                 }
                 .padding(.top, 14)
 
-                PreferenceChips().padding(.top, 10)
-                ViaRow(adding: $addingStop).padding(.top, 8)
+                OptionsButton(showing: $showingOptions).padding(.top, 10)
 
                 VStack(spacing: 8) {
                     if model.isPlanning && model.loops.isEmpty {
@@ -66,8 +67,9 @@ struct LoopOptionsScreen: View {
                 .padding(.top, 12)
                 .opacity(model.isPlanning && !model.loops.isEmpty ? 0.5 : 1)
 
-                Button("Start walk") { model.startWalk() }
+                Button("Go") { model.startWalk() }
                     .buttonStyle(PrimaryButtonStyle())
+                    .accessibilityLabel("Start walk")
                     .disabled(selected == nil || model.isPlanning)
                     .padding(.top, 16)
 
@@ -80,7 +82,8 @@ struct LoopOptionsScreen: View {
                 }
             }
         }
-        .sheet(isPresented: $addingStop) { ViaSearchSheet().environment(model) }
+        .sheet(isPresented: $showingOptions) { LoopOptionsSheet().environment(model) }
+        .sensoryFeedback(.selection, trigger: model.selectedLoopID)
         .onChange(of: model.selectedLoopID) { _, _ in frame() }
         .onChange(of: model.isPlanning) { _, planning in
             // Tell VoiceOver when the loops arrive; nothing else on screen says so aloud.
@@ -94,6 +97,15 @@ struct LoopOptionsScreen: View {
         let count = model.loops.count
         let word = [1: "One loop", 2: "Two loops", 3: "Three loops"][count] ?? "\(count) loops"
         return count == 0 ? "No loops yet" : "\(word), \(model.minutes) minutes"
+    }
+
+    /// Picks the loop that runs nearest a tap on the map, if one runs close by.
+    private func pick(_ place: Coord) {
+        let nearest = model.loops
+            .map { (loop: $0, distance: Geo.nearest(to: place, on: $0.path).distance) }
+            .min { $0.distance < $1.distance }
+        guard let nearest, nearest.distance < 80, nearest.loop.id != model.selectedLoopID else { return }
+        withAnimation(.snappy) { model.selectedLoopID = nearest.loop.id }
     }
 
     private func frame() {
@@ -129,83 +141,106 @@ struct LoopRow: View {
     }
 }
 
-/// The stop the loops pass on the way, or the button that adds one (F16).
-struct ViaRow: View {
+/// One button for everything that shapes a loop: route preferences (F12) and a stop on the way (F16).
+/// It says what is switched on, so the sheet need not be opened to know.
+struct OptionsButton: View {
     @Environment(AppModel.self) private var model
-    @Binding var adding: Bool
+    @Binding var showing: Bool
+
+    private var summary: String {
+        let applied = model.appliedPreferences
+        var parts: [String] = []
+        if applied.quiet { parts.append("Quiet") }
+        if applied.green { parts.append("Green") }
+        if model.preferences.lit { parts.append("Well lit") }
+        if applied.stepFree { parts.append("Step-free") }
+        if let via = model.via { parts.append("via \(via.name)") }
+        return parts.isEmpty ? "Options" : parts.joined(separator: " · ")
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button { adding = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "mappin.and.ellipse")
-                        .font(.system(size: 14, weight: .semibold))
-                        .accessibilityHidden(true)
-                    Text(model.via.map { "Via \($0.name)" } ?? "Add a stop on the way")
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(Theme.text)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+        Button { showing = true } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 14, weight: .semibold))
+                    .accessibilityHidden(true)
+                Text(summary)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.muted)
+                    .accessibilityHidden(true)
             }
-            .buttonStyle(.plain)
-            .accessibilityHint("A café, post box or shop for the loop to pass")
-            if model.via != nil {
-                Button { model.setVia(nil) } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Theme.text)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(Theme.chip))
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Remove the stop")
-            }
+            .foregroundStyle(Theme.text)
+            .padding(.horizontal, 14)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(Capsule().fill(Theme.chip))
         }
+        .buttonStyle(.plain)
         .disabled(model.isPlanning)
+        .accessibilityLabel("Options")
+        .accessibilityValue(summary == "Options" ? "None set" : summary)
     }
 }
 
-/// Route preferences (F12): tap one and the loops are planned again with it.
-struct PreferenceChips: View {
+/// Route preferences and the stop on the way. Each change plans the loops again behind the sheet.
+struct LoopOptionsSheet: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    @State private var addingStop = false
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                chip("Quiet", symbol: "speaker.slash", \.quiet, hint: "Keeps off main roads")
-                chip("Green", symbol: "leaf", \.green, hint: "Goes through parks where it can")
-                chip("Well lit", symbol: "lightbulb", \.lit, hint: "After dark, keeps to lit streets")
-                chip("Step-free", symbol: "figure.roll", \.stepFree, hint: "Never uses steps")
+        NavigationStack {
+            List {
+                Section {
+                    toggle("Quiet", "Keeps off main roads", symbol: "speaker.slash", \.quiet)
+                    toggle("Green", "Goes through parks where it can", symbol: "leaf", \.green)
+                    toggle("Well lit", "After dark, keeps to lit streets", symbol: "lightbulb", \.lit)
+                    toggle("Step-free", "Never uses steps", symbol: "figure.roll", \.stepFree)
+                } header: {
+                    Text("Prefer")
+                } footer: {
+                    if !model.purchases.hasPlus { Text("Quiet, green and step-free are part of Unwalked Plus.") }
+                }
+                Section("On the way") {
+                    Button { addingStop = true } label: {
+                        Label(model.via.map { "Via \($0.name)" } ?? "Add a stop", systemImage: "mappin.and.ellipse")
+                    }
+                    .foregroundStyle(Theme.text)
+                    if model.via != nil {
+                        Button("Remove the stop", role: .destructive) { model.setVia(nil) }
+                    }
+                }
             }
-            .padding(.horizontal, 20)
+            .navigationTitle("Options")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .sheet(isPresented: $addingStop) { ViaSearchSheet().environment(model) }
         }
-        .padding(.horizontal, -20)
-        .disabled(model.isPlanning)
+        .presentationDetents([.medium, .large])
     }
 
-    private func chip(_ label: String, symbol: String, _ preference: WritableKeyPath<RoutePreferences, Bool>,
-                      hint: String) -> some View {
-        let isOn = model.preferences[keyPath: preference]
+    private func toggle(_ title: String, _ detail: String, symbol: String,
+                        _ preference: WritableKeyPath<RoutePreferences, Bool>) -> some View {
         let locked = preference != \.lit && !model.purchases.hasPlus
-        return Button { model.togglePreference(preference) } label: {
-            HStack(spacing: 6) {
-                Image(systemName: locked ? "lock" : symbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .accessibilityHidden(true)
-                Text(label).font(.subheadline.weight(.semibold))
+        return Toggle(isOn: Binding(
+            get: { !locked && model.preferences[keyPath: preference] },
+            set: { _ in
+                // The paywall cannot open over this sheet, so step out of the way first.
+                if locked { dismiss() }
+                model.togglePreference(preference)
             }
-            .foregroundStyle(isOn && !locked ? Theme.onPrimary : Theme.text)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 44)
-            .background(Capsule().fill(isOn && !locked ? Theme.primary : Theme.chip))
+        )) {
+            Label {
+                TitleSubtitle(title: title, subtitle: locked ? "Part of Unwalked Plus" : detail)
+            } icon: {
+                Image(systemName: locked ? "lock" : symbol)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityHint(locked ? "Part of Unwalked Plus" : hint)
-        .accessibilityAddTraits(isOn && !locked ? .isSelected : [])
     }
 }
 

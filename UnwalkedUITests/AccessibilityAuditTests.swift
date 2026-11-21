@@ -33,11 +33,12 @@ final class AccessibilityAuditTests: XCTestCase {
 
         start.tap()
         XCTAssertTrue(app.buttons["End walk"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Report a problem with this street"].exists)
-        XCTAssertTrue(app.buttons["Head home by the shortest way"].exists)
+        XCTAssertTrue(app.buttons["More"].exists)
         try audit(app, screen: "Walking")
 
-        app.buttons["Report a problem with this street"].tap()
+        app.buttons["More"].tap()
+        XCTAssertTrue(app.buttons["Head home"].waitForExistence(timeout: 3))
+        app.buttons["Report a street"].tap()
         XCTAssertTrue(app.buttons["Report and reroute"].waitForExistence(timeout: 3))
         try audit(app, screen: "Report a street")
         app.buttons["Cancel report"].tap()

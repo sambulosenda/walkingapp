@@ -126,7 +126,7 @@ struct LoopPlanner {
         let distance = Geo.length(of: path)
         let direction = bearing.map(Self.compass) ?? "Back"
         let via = segments.first(where: \.isNew)?.street ?? segments.compactMap(\.street).first
-        let name = via.map { "\(direction), via \($0)" } ?? "\(direction) loop"
+        let name = via ?? "\(direction) loop"
         return PlannedLoop(name: name, home: home, waypoints: waypoints, path: path, steps: steps,
                            segments: segments, distance: distance, duration: distance / metresPerSecond)
     }

@@ -128,12 +128,20 @@ struct WalkToolbar: View {
             .accessibilityElement(children: .combine)
             .accessibilityHint("Makes this walk shorter or longer")
 
-            RoundIconButton(systemName: "flag", label: "Report a problem with this street",
-                            fill: Theme.controlTint, action: onReport)
-            RoundIconButton(systemName: "house", label: "Head home by the shortest way", fill: Theme.controlTint) {
-                Task { await session.headHome() }
+            // Three bare icons had to be learned. Ending the walk stays out; the rest have names.
+            Menu {
+                Button("Report a street", systemImage: "flag", action: onReport)
+                Button("Head home", systemImage: "house") { Task { await session.headHome() } }
+                    .disabled(session.isHeadingHome)
+                Button("Shorter or longer", systemImage: "plusminus", action: onResize)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Theme.text)
+                    .frame(width: 48, height: 48)
+                    .background(Circle().fill(Theme.controlTint))
             }
-            .disabled(session.isHeadingHome)
+            .accessibilityLabel("More")
             RoundIconButton(systemName: "stop.fill", label: "End walk", fill: Theme.controlTint) { confirmEnd = true }
                 // Anchored to the button so the popover opens beside it, not at the top of the screen.
                 .confirmationDialog("End this walk?", isPresented: $confirmEnd, titleVisibility: .visible) {

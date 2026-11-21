@@ -136,10 +136,9 @@ struct StreetRouter: Sendable {
                 lengths[street, default: 0] += segment.length * (segment.isNew ? 2 : 1)
             }
             let streets = lengths.sorted { $0.value > $1.value }.map(\.key)
-            let direction = candidate.bearing.map(LoopPlanner.compass) ?? "Back"
             if let via = streets.first(where: { !taken.contains($0) }) ?? streets.first {
                 taken.insert(via)
-                loop.name = "\(direction), via \(via)"
+                loop.name = via
             }
             return loop
         }
@@ -310,7 +309,8 @@ struct StreetRouter: Sendable {
         let distance = Geo.length(of: path)
         let direction = bearing.map(LoopPlanner.compass) ?? "Back"
         let via = segments.first { $0.isNew && $0.street != nil }?.street ?? segments.compactMap(\.street).first
-        let name = via.map { "\(direction), via \($0)" } ?? "\(direction) loop"
+        // A loop is called by its street: "Old Compton Street" says more than a compass point does.
+        let name = via ?? "\(direction) loop"
         var loop = PlannedLoop(name: name, home: home, waypoints: waypoints, path: path, steps: turns,
                                segments: segments, distance: distance, duration: distance / metresPerSecond)
         loop.greenFraction = total > 0 ? green / total : 0

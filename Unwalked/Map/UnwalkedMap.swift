@@ -7,6 +7,8 @@ struct MapLayers {
     var walked: [[Coord]] = []
     /// The selected loop, as a soft orange band.
     var loop: [Coord]?
+    /// The loops not picked, drawn faint so they can be seen and tapped.
+    var others: [[Coord]] = []
     /// The rest of the route while walking.
     var ahead: [Coord]?
     /// New-to-you streets, solid orange.
@@ -26,8 +28,20 @@ struct UnwalkedMap: View {
     var layers: MapLayers
     @Binding var position: MapCameraPosition
     var interactive = true
+    /// Called with the place tapped, for picking a loop off the map.
+    var onTap: ((Coord) -> Void)?
 
     var body: some View {
+        MapReader { proxy in
+            // Screen coordinates: the map runs under the status bar, so its own space and the reader's
+            // differ by the safe area, and a tap would land a hundred metres off.
+            map.gesture(SpatialTapGesture(coordinateSpace: .global).onEnded { tap in
+                if let onTap, let place = proxy.convert(tap.location, from: .global) { onTap(Coord(place)) }
+            }, including: onTap == nil ? .subviews : .all)
+        }
+    }
+
+    private var map: some View {
         Map(position: $position, interactionModes: interactive ? [.pan, .zoom] : []) {
             if let area = layers.homeArea {
                 MapPolygon(HomeAreaMask.polygon(for: area))
@@ -40,6 +54,11 @@ struct UnwalkedMap: View {
             ForEach(Array(layers.walked.enumerated()), id: \.offset) { _, path in
                 MapPolyline(coordinates: path.map(\.cl))
                     .stroke(Theme.walked, style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+            }
+
+            ForEach(Array(layers.others.enumerated()), id: \.offset) { _, path in
+                MapPolyline(coordinates: path.map(\.cl))
+                    .stroke(Theme.walked.opacity(0.28), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
             }
 
             if let loop = layers.loop {
