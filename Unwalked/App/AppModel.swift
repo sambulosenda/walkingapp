@@ -238,6 +238,10 @@ final class WalkSimulator {
             }
             acc += d
         }
+        // Past the end: stand on the last point, or the walk stops a stride short of home and never arrives.
+        if let last = path.last {
+            session.update(with: CLLocation(coordinate: last.cl, altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now))
+        }
         stop()
     }
 }
