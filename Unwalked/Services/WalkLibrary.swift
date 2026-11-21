@@ -134,6 +134,9 @@ final class WalkLibrary {
     var reports: [StreetReport] { data.reports }
 
     func report(_ report: StreetReport) {
+        // The same stretch reported twice in a few seconds is one report delivered twice.
+        if let last = data.reports.last, last.reason == report.reason, last.path == report.path,
+           report.date.timeIntervalSince(last.date) < 30 { return }
         data.reports.append(report)
         save()
     }

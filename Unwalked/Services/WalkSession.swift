@@ -393,6 +393,7 @@ final class WalkSession {
     /// Saves the report and plans round it, still aiming to be home on time.
     @MainActor
     func report(_ reason: ReportReason) async {
+        guard !isRerouting else { return }
         let stretch = stretchAhead
         library.report(StreetReport(path: stretch, reason: reason))
         // Excluded from this walker's loops above; queued for review here (F8).
