@@ -35,7 +35,8 @@ enum Milestones {
         var out: [String] = []
         if let step = streetSteps.first(where: { $0 > streets }) {
             let left = step - streets
-            out.append("\(left) more whole \(left == 1 ? "street" : "streets") to reach \(step)")
+            out.append(step == 1 ? "Walk one street end to end"
+                       : "\(left) more whole \(left == 1 ? "street" : "streets") to reach \(step)")
         }
         if let step = coverageSteps.first(where: { $0 > Int((coverage * 100).rounded(.down)) }) {
             out.append("\(step)% of your area is next")
