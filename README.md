@@ -62,7 +62,8 @@ without a purchase.
 - **A stop on the way**: Apple's search finds a café, post box or shop, and every loop goes out through it.
 - **Apple Health**: past walking routes can be brought in to colour the map (Plus), and each walk can be
   saved as a workout. Needs the HealthKit capability on the App ID.
-- **Sharing** a walk or the map makes a picture of the streets alone, with nothing within 200 m of home.
+- **Sharing** a walk or the map makes a picture of the streets alone. The streets round home are left off, as a patch of random size
+  set off to one side, so its middle is not the door.
 - **Plus** is two StoreKit subscriptions, `com.unwalked.plus.yearly` and `com.unwalked.plus.monthly`.
   Two free loops a week, resetting on Monday.
 - Everything is stored on the phone, in `Application Support/unwalked.json`. Test purchases with `Unwalked.storekit`,

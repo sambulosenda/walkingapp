@@ -3,8 +3,13 @@ import SwiftUI
 
 /// A picture of a walk, or of the whole map, to share (F17).
 ///
-/// Streets only: no base map, no place names, and nothing within 200 m of home. It shows the shape
-/// of where someone walked without showing where they live.
+/// Streets only: no base map, no place names, and nothing near home. It shows the shape of where
+/// someone walked without showing where they live.
+///
+/// "Near home" is not a circle round the door: the middle of a round hole is easy to find. The
+/// hidden patch is a circle of a size picked at random, pushed off to one side, with home somewhere
+/// inside it. It is picked once and kept, because a different patch on every picture could be laid
+/// over one another to narrow home down.
 struct ShareCard: View {
     var walked: [[Coord]]
     var fresh: [[Coord]]
@@ -12,8 +17,29 @@ struct ShareCard: View {
     var detail: String
 
     static let size = CGSize(width: 360, height: 450)
-    /// Streets this close to home are left off the picture.
-    static let homeMargin: CLLocationDistance = 200
+    /// The patch left off every picture: home is inside it, at least 200 m from its edge, and not at its middle.
+    struct HomeMask: Codable {
+        /// The home this patch was picked for, so a new one is picked if home moves.
+        var home: Coord
+        var centre: Coord
+        var radius: CLLocationDistance
+
+        private static let key = "shareHomeMask"
+
+        static func mask(for home: Coord) -> HomeMask {
+            if let raw = UserDefaults.standard.data(forKey: key),
+               let saved = try? JSONDecoder().decode(HomeMask.self, from: raw),
+               saved.home.distance(to: home) < 50 {
+                return saved
+            }
+            let offset = Double.random(in: 100...250)
+            let made = HomeMask(home: home,
+                                centre: Geo.destination(from: home, bearing: Double.random(in: 0..<360), distance: offset),
+                                radius: offset + Double.random(in: 200...300))
+            if let raw = try? JSONEncoder().encode(made) { UserDefaults.standard.set(raw, forKey: key) }
+            return made
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -78,10 +104,11 @@ struct ShareCard: View {
     /// The parts of a path that are not near home, as separate runs.
     static func awayFromHome(_ path: [Coord], home: Coord?) -> [[Coord]] {
         guard let home else { return [path] }
+        let mask = HomeMask.mask(for: home)
         var runs: [[Coord]] = []
         var run: [Coord] = []
         for c in Geo.densify(path, spacing: 25) {
-            if c.distance(to: home) > homeMargin {
+            if c.distance(to: mask.centre) > mask.radius {
                 run.append(c)
             } else if run.count > 1 {
                 runs.append(run)

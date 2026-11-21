@@ -96,7 +96,7 @@ struct SettingsSheet: View {
                             Label("Share a picture of my map", systemImage: "square.and.arrow.up")
                         }
                     } footer: {
-                        Text("Streets only, with nothing near your home.")
+                        Text("Streets only, with the streets round your home left off.")
                     }
                 }
 
