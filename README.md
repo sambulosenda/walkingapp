@@ -36,7 +36,8 @@ so you can see turn cues, the Live Activity and Walk complete.
 | `UnwalkedWatch` | Watch app: turn screen, between-turns ring, wrist taps |
 | `Shared` | Types used by more than one target |
 | `UnwalkedUITests` | Walks through every main screen running Apple's accessibility audit |
-| `server` | Cloudflare Worker that serves street tiles from an R2 bucket |
+| `server` | Cloudflare Worker that serves street tiles from an R2 bucket, and the privacy policy at `/privacy` |
+| `Tools` | `MakeAppIcon.swift`, which draws the app icon |
 
 ## How it works
 
@@ -78,6 +79,24 @@ wrangler deploy
 
 Then put the Worker's address in `StreetTilesURL` in `project.yml` and run `xcodegen`. To try a local server from
 the Simulator, launch the app with `-streetTilesURL http://localhost:8787`.
+
+## Before a build goes out
+
+- **`PrivacyPolicyURL`** in `project.yml` has to point at a live page, or App Review turns the
+  subscription paywall down. The Worker serves one at `/privacy`; set `CONTACT_EMAIL` in
+  `server/wrangler.toml` first so the page has a way to reach a human.
+- **Deploy the Worker** before shipping a build that sets `StreetTilesURL`.
+- The app icon is drawn by a script, so it can be changed in one place and regenerated:
+
+```sh
+swift Tools/MakeAppIcon.swift Unwalked/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+```
+
+It writes a 1024×1024 PNG with no alpha channel, which is what the App Store accepts.
+
+- `PrivacyInfo.xcprivacy` in each of the three targets declares what leaves the phone (coarse
+  map-tile requests, nothing else) and why the app reads `UserDefaults` and a file's modification
+  date. Keep it in step with the answers given in App Store Connect.
 
 ## Accessibility
 
