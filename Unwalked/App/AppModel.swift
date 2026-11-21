@@ -4,6 +4,9 @@ import Observation
 
 @Observable
 final class AppModel {
+    /// The running app's model, for App Intents, which Siri and Shortcuts create outside SwiftUI.
+    static weak var current: AppModel?
+
     enum Screen: Equatable {
         case onboarding
         case home
@@ -55,6 +58,7 @@ final class AppModel {
         screen = library.onboarded && library.homeArea != nil ? .home : .onboarding
         LiveActivityController.endLeftovers()
         Task { await loadStreets() }
+        Self.current = self
     }
 
     // MARK: Streets
@@ -174,6 +178,7 @@ final class AppModel {
         via = nil
         location.onUpdate = { [weak session] fix in session?.update(with: fix) }
         location.startWalking()
+        watch.wakeWatch()
         session.begin()
         screen = .walking
 
@@ -184,6 +189,25 @@ final class AppModel {
             simulator = sim
         }
         #endif
+    }
+
+    /// Plans a loop for `minutes` and starts the best one, for Siri and Shortcuts.
+    /// Returns what to say back.
+    @MainActor
+    func startLoop(minutes asked: Int) async -> String {
+        guard library.onboarded, library.homeArea != nil else { return "Open Unwalked to set your home area first." }
+        guard session == nil else { return "You're already on a walk." }
+        guard canStartLoop else {
+            showPaywall = true
+            return "You've used this week's free loops."
+        }
+        minutes = min(Self.minuteRange.upperBound, max(Self.minuteRange.lowerBound, asked))
+        screen = .loops
+        await planLoops()
+        guard let loop = loops.first else { return planError ?? "Couldn't find a loop from here." }
+        selectedLoopID = loop.id
+        startWalk()
+        return "Starting \(loop.name). About \(loop.minutes) minutes."
     }
 
     func endWalk() {

@@ -38,6 +38,14 @@ struct SettingsSheet: View {
                         Text("Learned from your walks: \(model.library.speedKmh, specifier: "%.1f") km/h")
                             .font(.footnote)
                             .foregroundStyle(Theme.muted)
+                    } else if let health = model.library.healthSpeedKmh {
+                        Text("From Apple Health: \(health, specifier: "%.1f") km/h, until your own walks take over")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.muted)
+                    } else if HealthLink.isAvailable {
+                        Button("Use my walking speed from Apple Health") {
+                            Task { await model.health.refreshWalkingSpeed() }
+                        }
                     }
                 }
 

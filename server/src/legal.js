@@ -84,8 +84,8 @@ walk. It is used on the phone, as you walk, and written only to that file on you
 turn it off at any time in iOS Settings; the app cannot guide a walk without it.</p>
 
 <h2>Apple Health</h2>
-<p>Only if you ask it to, Unwalked reads the routes of walking and hiking workouts from Apple Health
-to colour in streets you have already walked, and can save each of your walks to Health as a workout.
+<p>Only if you ask it to, Unwalked reads your walking speed from Apple Health, to size loops to the time
+you have, and the routes of walking and hiking workouts, to colour in streets you have already walked, and can save each of your walks to Health as a workout.
 What it reads stays on your phone with your other walks. Nothing from Apple Health is sent to us or
 to anyone else, and it is never used for advertising.</p>
 

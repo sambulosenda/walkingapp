@@ -117,11 +117,21 @@ final class WalkLibrary {
         save()
     }
 
+    /// Where Apple Health's walking speed is kept, in km/h. In defaults, not in `Snapshot`: a new field
+    /// there would make every existing save fail to decode.
+    static let healthSpeedKey = "healthWalkingSpeedKmh"
+
+    /// Walking speed from Apple Health, when the walker has let Unwalked read it.
+    var healthSpeedKmh: Double? {
+        let saved = UserDefaults.standard.double(forKey: Self.healthSpeedKey)
+        return saved > 0 ? saved : nil
+    }
+
     /// Learned walking speed in km/h, from the last five walks of ten minutes or more.
-    /// Falls back to the pace picked in onboarding.
+    /// Until there are two, Apple Health's walking speed, and failing that the pace set in Settings.
     var speedKmh: Double {
         let recent = data.walks.suffix(5).filter { $0.duration >= 600 && $0.distance > 300 }
-        guard recent.count >= 2 else { return data.pace.kmPerHour }
+        guard recent.count >= 2 else { return healthSpeedKmh ?? data.pace.kmPerHour }
         let km = recent.reduce(0) { $0 + $1.distance } / 1000
         let hours = recent.reduce(0) { $0 + $1.duration } / 3600
         return min(7, max(3, km / hours))

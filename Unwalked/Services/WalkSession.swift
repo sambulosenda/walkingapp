@@ -180,7 +180,7 @@ final class WalkSession {
                                     minutesLate: max(1, Int(extra.rounded())))
                 if firstTime {
                     publish(cue: .offLoop)
-                    cues.play(.offLoop, say: "You have left your loop. Finding a new way.")
+                    cues.play(.offLoop, say: "You have left your loop. Finding a new way.", wristTaps: watch.isReady)
                     replan()
                     return
                 }
@@ -212,7 +212,7 @@ final class WalkSession {
             line = spokenInstruction(for: step)
         }
         checkLate()
-        if let cue { cues.play(cue, say: line) }
+        if let cue { cues.play(cue, say: line, wristTaps: watch.isReady) }
         publish(cue: cue)
     }
 
@@ -308,7 +308,7 @@ final class WalkSession {
                 shortcut: shortcut,
                 summary: via.map { "Going back along \($0) gets you home on time." } ?? "A shorter way home gets you back on time."
             )
-            cues.play(.late, say: "You are running about \(late) minutes late. A shortcut home is ready.")
+            cues.play(.late, say: "You are running about \(late) minutes late. A shortcut home is ready.", wristTaps: watch.isReady)
             publish(cue: .late)
         }
     }

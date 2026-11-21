@@ -1,12 +1,24 @@
+import HealthKit
 import SwiftUI
+import WatchKit
+
+/// The phone wakes the watch app with a workout configuration when a walk starts.
+final class WatchAppDelegate: NSObject, WKApplicationDelegate {
+    static let model = WatchModel()
+
+    func handle(_ workoutConfiguration: HKWorkoutConfiguration) {
+        Self.model.startWorkout(workoutConfiguration)
+    }
+}
 
 @main
 struct UnwalkedWatchApp: App {
-    @State private var model = WatchModel()
+    @WKApplicationDelegateAdaptor private var delegate: WatchAppDelegate
 
     var body: some Scene {
         WindowGroup {
-            WatchRootView(model: model)
+            WatchRootView(model: WatchAppDelegate.model)
+                .task { WatchAppDelegate.model.requestAccess() }
         }
     }
 }

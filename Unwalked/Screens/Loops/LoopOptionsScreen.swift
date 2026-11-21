@@ -113,10 +113,11 @@ struct LoopRow: View {
 
     var body: some View {
         ChoiceRow(isSelected: isSelected, height: 60, action: action) {
-            TitleSubtitle(title: loop.name, subtitle: loop.metaLine(for: preferences))
+            // One fact per row: how much of it is new. The rest shows on the loop that is picked.
+            TitleSubtitle(title: loop.name, subtitle: isSelected ? loop.metaLine(for: preferences) : "\(loop.minutes) min")
         } trailing: {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(Format.percent(loop.newFraction))
+                Text(Format.distance(loop.newDistance))
                     .font(.rounded(.title2))
                     .foregroundStyle(Theme.text)
                 Text("new")
@@ -124,7 +125,7 @@ struct LoopRow: View {
                     .foregroundStyle(Theme.muted)
             }
         }
-        .accessibilityLabel("\(loop.name), \(loop.metaLine(for: preferences)), \(Format.percent(loop.newFraction)) new")
+        .accessibilityLabel("\(loop.name), \(loop.metaLine(for: preferences)), \(Format.distance(loop.newDistance)) new to you")
     }
 }
 

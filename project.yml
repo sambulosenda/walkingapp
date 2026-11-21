@@ -53,7 +53,7 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: Unwalked keeps guiding you with the phone in your pocket. Your walks stay on this phone.
         UIBackgroundModes: [location, audio]
         NSSupportsLiveActivities: true
-        NSHealthShareUsageDescription: Unwalked reads the routes of your past walks to colour in the streets you have already walked. They stay on this phone.
+        NSHealthShareUsageDescription: Unwalked reads your walking speed, to size loops to the time you have, and the routes of your past walks, to colour in the streets you have already walked. They stay on this phone.
         NSHealthUpdateUsageDescription: Unwalked can save each walk to Apple Health as a workout with its route.
         # Where street tiles are served from (see server/). Empty: streets come from Overpass alone.
         StreetTilesURL: ""
@@ -113,9 +113,17 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.unwalked.app.watchkitapp
+    entitlements:
+      path: UnwalkedWatch/UnwalkedWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
     info:
       path: UnwalkedWatch/Info.plist
       properties:
         CFBundleDisplayName: Unwalked
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.unwalked.app
+        # A workout session keeps the app running with the wrist down, so turn taps still land.
+        WKBackgroundModes: [workout-processing]
+        NSHealthShareUsageDescription: Unwalked uses a walking workout while you follow a loop, so your watch can tap your wrist at each turn.
+        NSHealthUpdateUsageDescription: Unwalked uses a walking workout while you follow a loop, so your watch can tap your wrist at each turn. It saves nothing to Health itself.

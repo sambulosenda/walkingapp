@@ -23,20 +23,23 @@ final class CuePlayer: NSObject, AVSpeechSynthesizerDelegate {
         voice.delegate = self
     }
 
-    func play(_ cue: WatchMessage.Cue, say line: String? = nil) {
+    /// With `wristTaps`, the watch is tapping the wrist, so the phone in a pocket does not tap as well.
+    func play(_ cue: WatchMessage.Cue, say line: String? = nil, wristTaps: Bool = false) {
         switch cue {
         case .left:
-            taps(2)
+            if !wristTaps { taps(2) }
             tone(frequency: 440, beeps: 2, then: line)
         case .right:
-            taps(3)
+            if !wristTaps { taps(3) }
             tone(frequency: 880, beeps: 3, then: line)
         case .offLoop:
-            buzz(after: 0)
+            if !wristTaps { buzz(after: 0) }
             tone(frequency: 330, beeps: 1, length: 0.6, then: line)
         case .late:
-            taps(1)
-            buzz(after: 0.25)
+            if !wristTaps {
+                taps(1)
+                buzz(after: 0.25)
+            }
             tone(frequency: 660, beeps: 2, length: 0.12, then: line)
         }
     }

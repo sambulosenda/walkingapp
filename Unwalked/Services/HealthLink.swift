@@ -32,7 +32,9 @@ final class HealthLink {
     /// Marks a workout as one Unwalked wrote, so importing skips it: that walk is on the map already.
     private static let marker = "UnwalkedWalkID"
 
-    private var readTypes: Set<HKObjectType> { [HKObjectType.workoutType(), HKSeriesType.workoutRoute()] }
+    private var readTypes: Set<HKObjectType> {
+        [HKObjectType.workoutType(), HKSeriesType.workoutRoute(), HKQuantityType(.walkingSpeed)]
+    }
     private var shareTypes: Set<HKSampleType> {
         [HKObjectType.workoutType(), HKSeriesType.workoutRoute(), HKQuantityType(.distanceWalkingRunning)]
     }
@@ -53,8 +55,35 @@ final class HealthLink {
     @MainActor
     func setSavesWorkouts(_ on: Bool) async {
         if on, await !requestAccess() { return }
+        if on { await refreshWalkingSpeed() }
         savesWorkouts = on
         UserDefaults.standard.set(on, forKey: Self.savesKey)
+    }
+
+    // MARK: Walking speed
+
+    /// Reads the walker's usual speed from Health, which the iPhone measures as they walk with it in a
+    /// pocket, and keeps it for `WalkLibrary.speedKmh`. Nil when Health has no walking speed to give.
+    @MainActor
+    @discardableResult
+    func refreshWalkingSpeed() async -> Double? {
+        guard Self.isAvailable, await requestAccess() else { return nil }
+        let since = Calendar.current.date(byAdding: .day, value: -60, to: .now) ?? .now
+        let samples: [HKQuantitySample] = await withCheckedContinuation { continuation in
+            let query = HKSampleQuery(sampleType: HKQuantityType(.walkingSpeed),
+                                      predicate: HKQuery.predicateForSamples(withStart: since, end: nil),
+                                      limit: 500, sortDescriptors: nil) { _, samples, _ in
+                continuation.resume(returning: (samples as? [HKQuantitySample]) ?? [])
+            }
+            store.execute(query)
+        }
+        // The middle value, so a few strolls or dashes do not pull it about.
+        let kmh = samples.map { $0.quantity.doubleValue(for: .meter().unitDivided(by: .second())) * 3.6 }.sorted()
+        guard kmh.count >= 5 else { return nil }
+        let middle = min(7, max(3, kmh[kmh.count / 2]))
+        UserDefaults.standard.set(middle, forKey: WalkLibrary.healthSpeedKey)
+        NSLog("Unwalked Health: walking speed %.1f km/h from %d samples", middle, kmh.count)
+        return middle
     }
 
     // MARK: Import
@@ -66,6 +95,7 @@ final class HealthLink {
         guard await requestAccess() else { message = "Couldn't ask Apple Health for your walks."; return }
         isImporting = true
         defer { isImporting = false }
+        await refreshWalkingSpeed()
         let known = Set(library.imported.map(\.id))
         let fresh = await walks(skipping: known)
         library.addImported(fresh)

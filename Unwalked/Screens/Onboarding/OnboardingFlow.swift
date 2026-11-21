@@ -7,7 +7,7 @@ struct OnboardingFlow: View {
     var body: some View {
         switch model.onboardingStep {
         case 1: LocationStep()
-        case 2: PaceStep()
+        // No pace question: pace comes from Apple Health if the walker lets it, and then from their walks.
         default: HomeAreaStep()
         }
     }
@@ -24,7 +24,7 @@ struct LocationStep: View {
         ZStack(alignment: .bottom) {
             UnwalkedMap(layers: MapLayers(showsUser: model.location.isAuthorized), position: $position, interactive: false)
             BottomSheet(bottomPadding: 22) {
-                StepLabel(step: 1, of: 3).padding(.top, 16)
+                StepLabel(step: 1, of: 2).padding(.top, 16)
                 SheetTitle(text: "Walks that start at your door").padding(.top, 4)
                 BodyText(text: "Unwalked uses your location while you walk, to guide you and fill in your map. Your walks stay on this phone.")
                     .padding(.top, 8)
@@ -47,46 +47,7 @@ struct LocationStep: View {
     }
 }
 
-// MARK: - Step 2: pace
-
-struct PaceStep: View {
-    @Environment(AppModel.self) private var model
-    @State private var position: MapCameraPosition = .userLocation(fallback: .automatic)
-    @State private var picked: Pace = .normal
-
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            UnwalkedMap(layers: MapLayers(showsUser: model.location.isAuthorized), position: $position, interactive: false)
-            BottomSheet {
-                StepLabel(step: 2, of: 3).padding(.top, 16)
-                SheetTitle(text: "How do you usually walk?").padding(.top, 4)
-                VStack(spacing: 8) {
-                    ForEach(Pace.allCases) { pace in
-                        ChoiceRow(isSelected: picked == pace, action: { picked = pace }) {
-                            TitleSubtitle(title: pace.label, subtitle: pace.detail)
-                        } trailing: {
-                            RadioDot(isOn: picked == pace)
-                        }
-                    }
-                }
-                .padding(.top, 16)
-                Text("Unwalked learns your real pace from your first few walks.")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.muted)
-                    .padding(.top, 12)
-                Button("Continue") {
-                    model.library.setPace(picked)
-                    model.onboardingStep = 3
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .padding(.top, 16)
-            }
-        }
-        .onAppear { picked = model.library.pace }
-    }
-}
-
-// MARK: - Step 3: home area
+// MARK: - Step 2: home area
 
 struct HomeAreaStep: View {
     @Environment(AppModel.self) private var model
@@ -126,7 +87,7 @@ struct HomeAreaStep: View {
             }
 
             BottomSheet {
-                if onDone == nil { StepLabel(step: 3, of: 3).padding(.top, 16) }
+                if onDone == nil { StepLabel(step: 2, of: 2).padding(.top, 16) }
                 SheetTitle(text: "This is your home area").padding(.top, onDone == nil ? 4 : 16)
                 if let area {
                     BodyText(text: "Your coverage counts the streets, about \(area.estimatedStreetCount), inside the circle. Drag its edge to make it bigger or smaller.")

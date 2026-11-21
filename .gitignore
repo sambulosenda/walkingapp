@@ -12,6 +12,7 @@ Unwalked/Info.plist
 UnwalkedWatch/Info.plist
 UnwalkedWidgets/Info.plist
 Unwalked/Unwalked.entitlements
+UnwalkedWatch/UnwalkedWatch.entitlements
 
 # Coverage
 *.profraw
