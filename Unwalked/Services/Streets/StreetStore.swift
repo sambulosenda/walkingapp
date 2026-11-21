@@ -21,7 +21,7 @@ struct StreetTile: Hashable {
         y = min(Int(n) - 1, max(0, Int(((1 - asinh(tan(rad)) / .pi) / 2 * n).rounded(.down))))
     }
 
-    var path: String { "v2/\(Self.zoom)/\(x)/\(y).json" }
+    var path: String { "v3/\(Self.zoom)/\(x)/\(y).json" }
 
     private var north: Double { Self.latitude(row: Double(y)) }
     private var south: Double { Self.latitude(row: Double(y + 1)) }
@@ -196,11 +196,20 @@ actor StreetStore {
     }
 
     private static func tileURL(_ tile: StreetTile) -> URL {
-        directory.appendingPathComponent("street-tiles/v2-\(StreetTile.zoom)-\(tile.x)-\(tile.y).json")
+        directory.appendingPathComponent("street-tiles/v3-\(StreetTile.zoom)-\(tile.x)-\(tile.y).json")
     }
 
     private static func download(center: Coord, radius: CLLocationDistance, within seconds: TimeInterval) async -> Data? {
-        let query = "[out:json][timeout:25];way[\"highway\"](around:\(Int(radius)),\(center.lat),\(center.lon));out body;>;out skel qt;"
+        // The streets in full, then the ids alone of those that run through a park, garden, common or wood.
+        let around = "(around:\(Int(radius)),\(center.lat),\(center.lon))"
+        let green = [
+            "way[\"leisure\"~\"^(park|garden|nature_reserve|common)$\"]",
+            "relation[\"leisure\"~\"^(park|garden|nature_reserve|common)$\"]",
+            "way[\"landuse\"~\"^(forest|meadow|grass|recreation_ground|village_green)$\"]",
+            "way[\"natural\"~\"^(wood|heath|grassland|scrub)$\"]",
+        ].map { "\($0)\(around);" }.joined()
+        let query = "[out:json][timeout:25];way[\"highway\"]\(around);out body;>;out skel qt;"
+            + "(\(green));map_to_area->.g;way[\"highway\"](area.g)\(around);out ids;"
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .alphanumerics) else { return nil }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForResource = seconds

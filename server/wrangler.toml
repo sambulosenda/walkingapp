@@ -2,7 +2,7 @@ name = "unwalked-streets"
 main = "src/worker.js"
 compatibility_date = "2026-11-01"
 
-# Street tiles, one object per tile: v2/14/{x}/{y}.json
+# Street tiles, one object per tile: v3/14/{x}/{y}.json
 [[r2_buckets]]
 binding = "TILES"
 bucket_name = "unwalked-streets"

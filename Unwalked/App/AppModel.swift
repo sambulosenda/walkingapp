@@ -17,6 +17,8 @@ final class AppModel {
     let purchases: Purchases
     let watch = WatchBridge()
     let streets = StreetStore()
+    let reports = ReportOutbox()
+    let health = HealthLink()
 
     var screen: Screen
     var onboardingStep = 1
@@ -30,6 +32,13 @@ final class AppModel {
     var isPlanning = false
     var planError: String?
     private var rotation = 0.0
+
+    /// Route preferences as the walker set them (F12). What the router applies also depends on the
+    /// hour and on their plan: see `appliedPreferences`.
+    private(set) var preferences = RoutePreferences.load()
+
+    /// A place the next loops should pass on the way (F16). Cleared when the walk starts.
+    private(set) var via: ViaPoint?
 
     private(set) var session: WalkSession?
     var showPaywall = false
@@ -73,6 +82,24 @@ final class AppModel {
     var isAfterDark: Bool {
         guard let c = home else { return false }
         return SunClock.isDark(lat: c.lat, lon: c.lon)
+    }
+
+    var appliedPreferences: RoutePreferences {
+        preferences.applied(afterDark: isAfterDark, hasPlus: purchases.hasPlus)
+    }
+
+    /// Flips one preference and plans again, so the loops on screen change with it.
+    /// Quiet, green and step-free belong to Plus; lighting is for everyone.
+    func togglePreference(_ preference: WritableKeyPath<RoutePreferences, Bool>) {
+        if preference != \.lit, !purchases.hasPlus { showPaywall = true; return }
+        preferences[keyPath: preference].toggle()
+        preferences.save()
+        if screen == .loops { Task { await planLoops() } }
+    }
+
+    func setVia(_ place: ViaPoint?) {
+        via = place
+        if screen == .loops { Task { await planLoops() } }
     }
 
     var canStartLoop: Bool {
@@ -124,9 +151,9 @@ final class AppModel {
         let graph = library.homeArea?.center == home ? await loadStreets(patience: .brief) : nil
         if graph == nil { Task { await loadStreets() } }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                  metresPerSecond: library.metresPerSecond, streets: graph, prefersLit: isAfterDark)
+                                  metresPerSecond: library.metresPerSecond, streets: graph, preferences: appliedPreferences)
         do {
-            loops = try await planner.loops(from: home, minutes: minutes, rotation: rotation)
+            loops = try await planner.loops(from: home, minutes: minutes, rotation: rotation, via: via)
             selectedLoopID = loops.first?.id
         } catch {
             loops = []
@@ -141,8 +168,10 @@ final class AppModel {
         guard canStartLoop else { showPaywall = true; return }
         if !purchases.hasPlus { library.useFreeLoop() }
 
-        let session = WalkSession(loop: loop, plannedMinutes: minutes, library: library, watch: watch)
+        let session = WalkSession(loop: loop, plannedMinutes: minutes, library: library, watch: watch,
+                                  reports: reports, preferences: appliedPreferences)
         self.session = session
+        via = nil
         location.onUpdate = { [weak session] fix in session?.update(with: fix) }
         location.startWalking()
         session.begin()
@@ -166,6 +195,7 @@ final class AppModel {
         location.onUpdate = nil
         location.stopWalking()
         let summary = session.finish()
+        Task { await health.save(summary.record) }
         self.session = nil
         loops = []
         screen = .complete(summary)
@@ -207,6 +237,10 @@ final class WalkSimulator {
                 return
             }
             acc += d
+        }
+        // Past the end: stand on the last point, or the walk stops a stride short of home and never arrives.
+        if let last = path.last {
+            session.update(with: CLLocation(coordinate: last.cl, altitude: 0, horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now))
         }
         stop()
     }

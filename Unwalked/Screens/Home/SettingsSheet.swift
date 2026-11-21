@@ -7,6 +7,15 @@ struct SettingsSheet: View {
     @State private var editingArea = false
     @State private var confirmReset = false
 
+    /// Everything walked so far as a picture (F17).
+    private var mapImage: Image {
+        ShareCard.image(
+            walked: model.library.walkedPaths, home: model.home,
+            headline: "\(Format.percent(model.library.coverageFraction)) walked",
+            detail: "\(model.library.walks.count) \(model.library.walks.count == 1 ? "walk" : "walks") round my area"
+        )
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -39,6 +48,35 @@ struct SettingsSheet: View {
                     }
                 }
 
+                if HealthLink.isAvailable {
+                    Section {
+                        Toggle("Save walks to Apple Health", isOn: Binding(
+                            get: { model.health.savesWorkouts },
+                            set: { on in Task { await model.health.setSavesWorkouts(on) } }
+                        ))
+                        Button {
+                            // Bringing past walks in is part of Plus.
+                            if model.purchases.hasPlus {
+                                Task { await model.health.importWalks(into: model.library) }
+                            } else {
+                                dismiss()
+                                model.showPaywall = true
+                            }
+                        } label: {
+                            HStack {
+                                Text("Bring in past walks")
+                                Spacer()
+                                if model.health.isImporting { ProgressView() }
+                            }
+                        }
+                        .disabled(model.health.isImporting)
+                    } header: {
+                        Text("Apple Health")
+                    } footer: {
+                        Text(model.health.message ?? "Walks recorded with other apps or a watch colour your map. They stay on this phone.")
+                    }
+                }
+
                 Section("Unwalked Plus") {
                     if model.purchases.hasPlus {
                         Label("Plus is on. Fresh loops whenever you want.", systemImage: "checkmark.seal")
@@ -50,6 +88,16 @@ struct SettingsSheet: View {
                         }
                     }
                     Button("Restore purchases") { Task { await model.purchases.restore() } }
+                }
+
+                if model.library.hasWalked {
+                    Section {
+                        ShareLink(item: mapImage, preview: SharePreview("My Unwalked map", image: mapImage)) {
+                            Label("Share a picture of my map", systemImage: "square.and.arrow.up")
+                        }
+                    } footer: {
+                        Text("Streets only, with the streets round your home left off.")
+                    }
                 }
 
                 Section {

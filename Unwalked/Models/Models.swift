@@ -129,6 +129,12 @@ struct PlannedLoop: Codable, Identifiable, Hashable {
     var distance: CLLocationDistance
     /// Planned duration at the walker's pace, in seconds.
     var duration: TimeInterval
+    /// Share of the loop through parks, gardens, commons and woods.
+    var greenFraction = 0.0
+    /// Share on a main road, or on a path right beside a big one.
+    var mainFraction = 0.0
+    /// Metres of steps on the way round.
+    var stepsMetres = 0.0
 
     var newDistance: CLLocationDistance { segments.filter(\.isNew).reduce(0) { $0 + $1.length } }
     var newFraction: Double { distance > 0 ? newDistance / distance : 0 }
@@ -136,6 +142,22 @@ struct PlannedLoop: Codable, Identifiable, Hashable {
 
     var minutes: Int { Int((duration / 60).rounded()) }
     var metaLine: String { "\(minutes) min · \(Format.km(distance))" }
+
+    /// The meta line, plus what the loop turned out like for each thing the walker asked for.
+    func metaLine(for preferences: RoutePreferences) -> String {
+        var parts = [metaLine]
+        if preferences.green { parts.append("\(Format.percent(greenFraction)) green") }
+        if preferences.quiet { parts.append(mainFraction < 0.005 ? "no main roads" : "\(Format.percent(mainFraction)) main road") }
+        if preferences.stepFree { parts.append(stepsMetres < 1 ? "no steps" : "has steps") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// A place the walker wants the loop to pass: a café, a post box, a shop (F16).
+struct ViaPoint: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var name: String
+    var coord: Coord
 }
 
 enum ReportReason: String, Codable, CaseIterable, Identifiable {

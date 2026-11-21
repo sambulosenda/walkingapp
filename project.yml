@@ -53,13 +53,22 @@ targets:
         NSLocationAlwaysAndWhenInUseUsageDescription: Unwalked keeps guiding you with the phone in your pocket. Your walks stay on this phone.
         UIBackgroundModes: [location, audio]
         NSSupportsLiveActivities: true
+        NSHealthShareUsageDescription: Unwalked reads the routes of your past walks to colour in the streets you have already walked. They stay on this phone.
+        NSHealthUpdateUsageDescription: Unwalked can save each walk to Apple Health as a workout with its route.
         # Where street tiles are served from (see server/). Empty: streets come from Overpass alone.
         StreetTilesURL: ""
         # The privacy policy the paywall links to, served by the same Worker at /privacy.
         # App Review requires a working link, so this must be filled in before uploading a build.
         PrivacyPolicyURL: "https://unwalked-streets.sambulo.workers.dev/privacy"
+        # Where a reported street is sent for review (F8). Empty: reports only ever stay on the
+        # phone, so the walker's own loops avoid the street but nobody ever sees it.
+        ReportsURL: "https://unwalked-streets.sambulo.workers.dev/v1/reports"
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+    entitlements:
+      path: Unwalked/Unwalked.entitlements
+      properties:
+        com.apple.developer.healthkit: true
     dependencies:
       - target: UnwalkedWidgets
       - target: UnwalkedWatch

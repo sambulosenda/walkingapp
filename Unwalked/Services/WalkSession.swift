@@ -20,11 +20,15 @@ final class WalkSession {
         var summary: String
     }
 
+    /// Street reports waiting to be sent for review.
+    private let outbox: ReportOutbox
+
     /// The loop as planned, used for new-street counts at the end.
     let plannedLoop: PlannedLoop
     /// The route being followed now. Changes on a shortcut, heading home or a reroute.
     private(set) var route: PlannedLoop
-    let plannedMinutes: Int
+    /// Minutes the walker asked for. Moves when they make the walk shorter or longer part-way round.
+    private(set) var plannedMinutes: Int
     let startDate = Date()
 
     private(set) var trail: [Coord] = []
@@ -55,16 +59,18 @@ final class WalkSession {
     static let offRouteMetres: CLLocationDistance = 30
     /// Share of the requested time a walk may overrun before it counts as late.
     static let lateShare = 0.10
-    /// Set once, when the walk starts: reroutes and shortcuts keep to lit streets if it began after dark.
-    private let startedAfterDark: Bool
+    /// Set once, when the walk starts: reroutes and shortcuts lean the same way the loop did.
+    private let preferences: RoutePreferences
 
-    init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge) {
+    init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge,
+         reports: ReportOutbox, preferences: RoutePreferences = .none) {
+        outbox = reports
+        self.preferences = preferences
         plannedLoop = loop
         route = loop
         self.plannedMinutes = plannedMinutes
         self.library = library
         self.watch = watch
-        startedAfterDark = SunClock.isDark(lat: loop.home.lat, lon: loop.home.lon)
         remainingDistance = loop.distance
         stepIndex = loop.steps.firstIndex { $0.pathIndex > 0 } ?? 0
         metresToTurn = alongPath(from: 0, to: nextStep?.pathIndex ?? 0)
@@ -232,7 +238,7 @@ final class WalkSession {
     @MainActor
     private func routeHome(from start: Coord, through waypoints: [Coord]) async -> PlannedLoop? {
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                  metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
+                                  metresPerSecond: metresPerSecond, streets: library.streets, preferences: preferences)
         let allowed = Double(plannedMinutes) * 60 * Self.lateShare
         var stops = waypoints
         var chosen: PlannedLoop?
@@ -293,7 +299,7 @@ final class WalkSession {
         Task { @MainActor in
             defer { isFindingShortcut = false }
             let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
+                                      metresPerSecond: metresPerSecond, streets: library.streets, preferences: preferences)
             guard let shortcut = try? await planner.shortcutHome(from: here, home: route.home),
                   shortcut.distance < remainingDistance * 0.85 else { return }
             let via = shortcut.segments.compactMap(\.street).first
@@ -314,6 +320,39 @@ final class WalkSession {
         isHeadingHome = true
     }
 
+    // MARK: Shorter or longer (F13)
+
+    /// Minutes one tap adds to or takes off the walk.
+    static let resizeStep = 10
+
+    /// True when there is enough walk left to take `resizeStep` minutes off it.
+    var canShorten: Bool { minutesLeft > Self.resizeStep && !isHeadingHome }
+
+    /// Plans a new way home that is `minutes` longer (or, negative, shorter) than what is left now.
+    /// Returns what the walk changed by in minutes, or nil when no such way could be found.
+    @MainActor
+    @discardableResult
+    func resize(by minutes: Int) async -> Int? {
+        guard let here, !isRerouting else { return nil }
+        isRerouting = true
+        defer { isRerouting = false }
+        let before = remainingDistance
+        let target = max(0, before + Double(minutes) * 60 * metresPerSecond)
+        let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
+                                  metresPerSecond: metresPerSecond, streets: library.streets, preferences: preferences)
+        guard let changed = await planner.wayHome(from: here, home: route.home, target: target) else { return nil }
+        let delta = Int(((changed.distance - before) / metresPerSecond / 60).rounded())
+        // A "longer" walk that came out no longer, or a "shorter" one no shorter, is not what was asked for.
+        guard minutes > 0 ? delta > 0 : delta < 0 else { return nil }
+        switchRoute(to: changed)
+        isHeadingHome = false
+        lateOffer = nil
+        // The time they asked for moves with it, so the walk is not then called late or early.
+        plannedMinutes = max(5, plannedMinutes + delta)
+        cues.say("Walk changed. About \(minutesLeft) minutes left.")
+        return delta
+    }
+
     func keepLoop() {
         lateDismissedAt = lateOffer?.minutesLate
         lateOffer = nil
@@ -325,7 +364,7 @@ final class WalkSession {
         isRerouting = true
         defer { isRerouting = false }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
+                                      metresPerSecond: metresPerSecond, streets: library.streets, preferences: preferences)
         if let shortcut = try? await planner.shortcutHome(from: here, home: route.home) {
             switchRoute(to: shortcut)
             isHeadingHome = true
@@ -356,6 +395,11 @@ final class WalkSession {
     func report(_ reason: ReportReason) async {
         let stretch = stretchAhead
         library.report(StreetReport(path: stretch, reason: reason))
+        // Excluded from this walker's loops above; queued for review here (F8).
+        if let queued = ReportOutbox.describe(stretch: stretch, on: route, reason: reason) {
+            outbox.add(queued)
+            Task { await outbox.flush() }
+        }
         guard let here else { return }
         isRerouting = true
         defer { isRerouting = false }

@@ -54,6 +54,10 @@ final class Purchases {
                 active = true
             }
         }
+        #if DEBUG
+        // Launch with `-plus` to try the Plus features without a StoreKit purchase.
+        if ProcessInfo.processInfo.arguments.contains("-plus") { active = true }
+        #endif
         hasPlus = active
     }
 

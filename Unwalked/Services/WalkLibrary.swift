@@ -19,6 +19,11 @@ final class WalkLibrary {
     private(set) var data: Snapshot
     private let url: URL
 
+    /// Walks brought in from Apple Health (F14). In a file of their own: a new field in `Snapshot`
+    /// would make every existing save fail to decode, and the fallback is an empty library.
+    private(set) var imported: [ImportedWalk] = []
+    private var importedURL: URL { url.deletingLastPathComponent().appendingPathComponent("unwalked-imported.json") }
+
     /// The streets around home, once downloaded. Not saved here; `StreetStore` keeps its own copy.
     @ObservationIgnored var streets: StreetGraph? { didSet { measureCoverage() } }
     /// Walked street length over all street length in the home area, when street data is in.
@@ -40,6 +45,9 @@ final class WalkLibrary {
             data = snap
         } else {
             data = Snapshot()
+        }
+        if let raw = try? Data(contentsOf: importedURL), let saved = try? JSONDecoder().decode([ImportedWalk].self, from: raw) {
+            imported = saved
         }
     }
 
@@ -71,6 +79,22 @@ final class WalkLibrary {
     // MARK: Walks
 
     var walks: [WalkRecord] { data.walks }
+
+    /// Every path to draw as walked: Unwalked's own walks, then those brought in from Apple Health.
+    var walkedPaths: [[Coord]] { data.walks.map(\.path) + imported.map(\.path) }
+
+    /// Adds walks from Apple Health: they colour the map and count towards coverage, but not towards
+    /// the learned pace or the walk count, which are about walks made with Unwalked.
+    func addImported(_ walks: [ImportedWalk]) {
+        guard !walks.isEmpty else { return }
+        imported += walks
+        for walk in walks { data.coverage.mark(walk.path) }
+        if let raw = try? JSONEncoder().encode(imported) {
+            try? raw.write(to: importedURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        save()
+        measureCoverage()
+    }
     var hasWalked: Bool { !data.walks.isEmpty }
     var coverage: Coverage { data.coverage }
 
@@ -134,6 +158,8 @@ final class WalkLibrary {
 
     func reset() {
         data = Snapshot()
+        imported = []
+        try? FileManager.default.removeItem(at: importedURL)
         save()
         measureCoverage()
     }
