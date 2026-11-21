@@ -17,5 +17,8 @@ namespace_id = "1001"
   period = 60
 
 [vars]
+# Shown on /privacy so people can reach a human. Leave empty to print no contact line.
+CONTACT_EMAIL = ""
+
 # Tried in order when a tile has to be built.
 OVERPASS_ENDPOINTS = "https://overpass-api.de/api/interpreter,https://overpass.private.coffee/api/interpreter"

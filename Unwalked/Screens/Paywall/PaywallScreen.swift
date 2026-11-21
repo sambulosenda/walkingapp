@@ -96,12 +96,26 @@ struct PaywallScreen: View {
             }
         }
         Button("Terms") { openURL(Links.terms) }
-        Button("Privacy") { openURL(Links.privacy) }
+        if let privacy = Links.privacy {
+            Button("Privacy") { openURL(privacy) }
+        }
     }
 }
 
 enum Links {
-    // TODO: point these at the real pages before release.
+    /// Apple's standard End User Licence Agreement. Unwalked uses it unchanged.
     static let terms = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
-    static let privacy = URL(string: "https://example.com/unwalked/privacy")!
+
+    /// `PrivacyPolicyURL` in Info.plist, served by the Worker in `server/` at `/privacy`.
+    /// App Review turns down a subscription paywall whose privacy link does not work, so this
+    /// has to point at a live page before a build is uploaded.
+    static let privacy: URL? = {
+        guard let set = Bundle.main.object(forInfoDictionaryKey: "PrivacyPolicyURL") as? String,
+              !set.isEmpty, let url = URL(string: set)
+        else {
+            assertionFailure("PrivacyPolicyURL is empty. Set it in project.yml, then run xcodegen.")
+            return nil
+        }
+        return url
+    }()
 }
