@@ -14,6 +14,8 @@ struct StreetSegment {
     var isMain: Bool
     /// A path or pavement that runs right beside a big road, so it is as loud as walking the road.
     var besideBigRoad = false
+    /// Extra cost after dark: 1 when lit, more when known to be dark or likely to be.
+    var darkFactor: Double = 1
 }
 
 /// The walkable streets around home, from OpenStreetMap, as junctions joined by segments.
@@ -164,7 +166,8 @@ final class StreetGraph: @unchecked Sendable {
                 let length = Geo.length(of: path)
                 if length > 0.5, let a = coords[from] {
                     segments.append(StreetSegment(from: node(from, a), to: node(id, c), path: path, length: length,
-                                                  name: way.name, factor: way.rule.factor, isMain: way.rule.isMain))
+                                                  name: way.name, factor: way.rule.factor, isMain: way.rule.isMain,
+                                                  darkFactor: way.rule.darkFactor))
                 }
                 startID = id
                 path = [c]
@@ -540,6 +543,8 @@ final class StreetGraph: @unchecked Sendable {
 struct WayRule {
     var factor: Double
     var isMain: Bool
+    /// Extra cost after dark, from OpenStreetMap's `lit` tag.
+    var darkFactor: Double
 
     /// For a big road: how close a path must run to count as beside it, in metres,
     /// and how much that path should be avoided. Nil for ordinary streets.
@@ -610,6 +615,18 @@ struct WayRule {
         }
         self.factor = factor
         self.isMain = isMain
+        darkFactor = Self.darkFactor(kind: kind, lit: tags["lit"])
+    }
+
+    /// Tagged unlit: used after dark only when there is no other way through.
+    /// Untagged paths: often unlit (parks, alleys), so mildly avoided. Untagged streets: nearly all lit in the UK.
+    static func darkFactor(kind: String, lit: String?) -> Double {
+        switch lit {
+        case "no", "disused": return 3
+        case .some(let value) where !value.isEmpty: return 1
+        default:
+            return ["footway", "path", "cycleway", "steps", "track", "bridleway"].contains(kind) ? 1.5 : 1
+        }
     }
 }
 

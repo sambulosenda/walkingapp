@@ -124,7 +124,7 @@ final class AppModel {
         let graph = library.homeArea?.center == home ? await loadStreets(patience: .brief) : nil
         if graph == nil { Task { await loadStreets() } }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                  metresPerSecond: library.metresPerSecond, streets: graph)
+                                  metresPerSecond: library.metresPerSecond, streets: graph, prefersLit: isAfterDark)
         do {
             loops = try await planner.loops(from: home, minutes: minutes, rotation: rotation)
             selectedLoopID = loops.first?.id

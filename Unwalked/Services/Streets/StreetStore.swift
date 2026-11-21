@@ -21,7 +21,7 @@ struct StreetTile: Hashable {
         y = min(Int(n) - 1, max(0, Int(((1 - asinh(tan(rad)) / .pi) / 2 * n).rounded(.down))))
     }
 
-    var path: String { "v1/\(Self.zoom)/\(x)/\(y).json" }
+    var path: String { "v2/\(Self.zoom)/\(x)/\(y).json" }
 
     private var north: Double { Self.latitude(row: Double(y)) }
     private var south: Double { Self.latitude(row: Double(y + 1)) }
@@ -196,7 +196,7 @@ actor StreetStore {
     }
 
     private static func tileURL(_ tile: StreetTile) -> URL {
-        directory.appendingPathComponent("street-tiles/\(StreetTile.zoom)-\(tile.x)-\(tile.y).json")
+        directory.appendingPathComponent("street-tiles/v2-\(StreetTile.zoom)-\(tile.x)-\(tile.y).json")
     }
 
     private static func download(center: Coord, radius: CLLocationDistance, within seconds: TimeInterval) async -> Data? {

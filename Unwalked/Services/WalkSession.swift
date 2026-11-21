@@ -55,6 +55,8 @@ final class WalkSession {
     static let offRouteMetres: CLLocationDistance = 30
     /// Share of the requested time a walk may overrun before it counts as late.
     static let lateShare = 0.10
+    /// Set once, when the walk starts: reroutes and shortcuts keep to lit streets if it began after dark.
+    private let startedAfterDark: Bool
 
     init(loop: PlannedLoop, plannedMinutes: Int, library: WalkLibrary, watch: WatchBridge) {
         plannedLoop = loop
@@ -62,6 +64,7 @@ final class WalkSession {
         self.plannedMinutes = plannedMinutes
         self.library = library
         self.watch = watch
+        startedAfterDark = SunClock.isDark(lat: loop.home.lat, lon: loop.home.lon)
         remainingDistance = loop.distance
         stepIndex = loop.steps.firstIndex { $0.pathIndex > 0 } ?? 0
         metresToTurn = alongPath(from: 0, to: nextStep?.pathIndex ?? 0)
@@ -229,7 +232,7 @@ final class WalkSession {
     @MainActor
     private func routeHome(from start: Coord, through waypoints: [Coord]) async -> PlannedLoop? {
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                  metresPerSecond: metresPerSecond, streets: library.streets)
+                                  metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
         let allowed = Double(plannedMinutes) * 60 * Self.lateShare
         var stops = waypoints
         var chosen: PlannedLoop?
@@ -290,7 +293,7 @@ final class WalkSession {
         Task { @MainActor in
             defer { isFindingShortcut = false }
             let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets)
+                                      metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
             guard let shortcut = try? await planner.shortcutHome(from: here, home: route.home),
                   shortcut.distance < remainingDistance * 0.85 else { return }
             let via = shortcut.segments.compactMap(\.street).first
@@ -322,7 +325,7 @@ final class WalkSession {
         isRerouting = true
         defer { isRerouting = false }
         let planner = LoopPlanner(coverage: library.coverage, reports: library.reports,
-                                      metresPerSecond: metresPerSecond, streets: library.streets)
+                                      metresPerSecond: metresPerSecond, streets: library.streets, prefersLit: startedAfterDark)
         if let shortcut = try? await planner.shortcutHome(from: here, home: route.home) {
             switchRoute(to: shortcut)
             isHeadingHome = true
