@@ -155,7 +155,10 @@ struct LoopPlanner {
 
     func crossesReport(_ path: [Coord]) -> Bool {
         guard !reports.isEmpty else { return false }
-        let points = reports.flatMap(\.path)
+        // Every loop leaves home and comes back to it: a report right outside the door would rule out
+        // every loop there is, so the first and last stretch do not count.
+        let ends = [path.first, path.last].compactMap { $0 }
+        let points = reports.flatMap(\.path).filter { p in ends.allSatisfy { p.distance(to: $0) > 60 } }
         return Geo.densify(path, spacing: 15).contains { c in points.contains { $0.distance(to: c) < 20 } }
     }
 

@@ -170,7 +170,6 @@ struct StreetRouter: Sendable {
     // MARK: Routes
 
     private func cost(_ segment: Int, used: Set<Int>) -> Double {
-        if blocked[segment] { return .infinity }
         let s = graph.segments[segment]
         // Step-free is a hard rule: for a pram or a wheelchair, one flight of steps ends the walk.
         if preferences.stepFree, s.isSteps { return .infinity }
@@ -182,6 +181,9 @@ struct StreetRouter: Sendable {
         if walked[segment] { c *= 1.6 }
         // Coming back along a street already in this loop is a last resort.
         if used.contains(segment) { c *= 6 }
+        // A reported street is avoided at almost any price, but not at every price: if it is the only
+        // way out of home, a loop that has to use it beats no loop at all, for ever.
+        if blocked[segment] { c = c * 50 + 5000 }
         return c
     }
 
