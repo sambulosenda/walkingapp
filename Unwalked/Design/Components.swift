@@ -345,15 +345,21 @@ struct TurnCard: View {
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                 Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.muted)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.text.opacity(0.8))
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .glass(radius: 26)
+        // Solid, not glass: this is read at a glance, outdoors and on the move, and its contrast must
+        // not depend on whatever part of the map happens to be underneath.
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Theme.sheet)
+                .shadow(color: Palette.ink.opacity(0.22), radius: 14, y: 8)
+        )
         .accessibilityElement(children: .combine)
     }
 }
