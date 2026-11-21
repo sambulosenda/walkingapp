@@ -39,6 +39,7 @@ struct HomeScreen: View {
                         Text("After dark, loops keep to well-lit streets")
                     } icon: {
                         Image(systemName: "moon").font(.system(size: 14, weight: .semibold))
+                            .accessibilityHidden(true)
                     }
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)

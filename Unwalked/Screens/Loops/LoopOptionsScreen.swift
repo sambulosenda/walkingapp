@@ -122,6 +122,8 @@ struct LoopRow: View {
 }
 
 struct Legend: View {
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         HStack(spacing: 14) {
             item(color: Theme.fresh, label: "New to you")
@@ -135,7 +137,7 @@ struct Legend: View {
         .glass(radius: 22)
         .floatingChipTextSize()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Map key: orange streets are new to you, dark streets are walked")
+        .accessibilityLabel("Map key: orange streets are new to you, \(colorScheme == .dark ? "white" : "dark") streets are walked")
     }
 
     private func item(color: Color, label: String) -> some View {
